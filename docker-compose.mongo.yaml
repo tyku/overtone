@@ -1,0 +1,148 @@
+# Single-node MongoDB replica set + auth.
+# Дефолтных логина/пароля нет — задай в .env:
+#   MONGO_ROOT_USERNAME / MONGO_ROOT_PASSWORD  — админ (роль root)
+#   MONGO_APP_USERNAME / MONGO_APP_PASSWORD    — приложение (по умолчанию poopAdmin)
+#   MONGO_DB                                  — БД приложения
+#
+# Запуск: docker compose -f docker-compose.mongo.yaml up -d
+# Сеть: overtone-network
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: mongo
+    restart: unless-stopped
+    environment:
+      MONGO_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-root}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
+      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:-poopAdmin}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Set MONGO_APP_PASSWORD in .env}
+      MONGO_DB: ${MONGO_DB:-poop-chat}
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        KEY=/data/keyfile/keyfile
+        mkdir -p /data/keyfile
+        if [ ! -f "$$KEY" ]; then
+          openssl rand -base64 756 > "$$KEY"
+        fi
+        chmod 400 "$$KEY"
+        chown mongodb:mongodb "$$KEY"
+        exec docker-entrypoint.sh mongod \
+          --replSet rs0 \
+          --bind_ip_all \
+          --keyFile "$$KEY" \
+          --wiredTigerCacheSizeGB 0.25
+    volumes:
+      - mongo_data:/data/db
+      - mongo_keyfile:/data/keyfile
+    ports:
+      - '127.0.0.1:27017:27017'
+    mem_limit: 512m
+    cpus: 0.5
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          mongosh --quiet --eval 'db.adminCommand({ ping: 1 })' \
+            || mongosh --quiet \
+              -u "$$MONGO_ROOT_USERNAME" \
+              -p "$$MONGO_ROOT_PASSWORD" \
+              --authenticationDatabase admin \
+              --eval 'db.adminCommand({ ping: 1 })'
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+    networks:
+      - overtone-network
+
+  # Shares network namespace with mongo → localhost exception for first user.
+  mongo-setup:
+    image: mongo:7
+    network_mode: service:mongo
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      MONGO_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-root}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
+      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:-poopAdmin}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Set MONGO_APP_PASSWORD in .env}
+      MONGO_DB: ${MONGO_DB:-poop-chat}
+    restart: 'no'
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        HOST=127.0.0.1
+
+        mongosh --host "$$HOST" --quiet --eval '
+          try {
+            const s = rs.status();
+            print("replica set already initialized: " + s.set);
+          } catch (e) {
+            printjson(rs.initiate({
+              _id: "rs0",
+              members: [{ _id: 0, host: "mongo:27017" }]
+            }));
+          }
+        '
+
+        for i in $$(seq 1 30); do
+          if mongosh --host "$$HOST" --quiet --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)'; then
+            break
+          fi
+          sleep 2
+        done
+
+        mongosh --host "$$HOST" --quiet --eval '
+          const rootUser = process.env.MONGO_ROOT_USERNAME;
+          const rootPass = process.env.MONGO_ROOT_PASSWORD;
+          const admin = db.getSiblingDB("admin");
+          // Localhost exception allows createUser only — not usersInfo/getUser.
+          try {
+            admin.createUser({
+              user: rootUser,
+              pwd: rootPass,
+              roles: [{ role: "root", db: "admin" }]
+            });
+            print("created root user: " + rootUser);
+          } catch (e) {
+            print("root user skip: " + e.message);
+          }
+        '
+
+        mongosh --host "$$HOST" --quiet \
+          -u "$$MONGO_ROOT_USERNAME" \
+          -p "$$MONGO_ROOT_PASSWORD" \
+          --authenticationDatabase admin \
+          --eval '
+            const appUser = process.env.MONGO_APP_USERNAME;
+            const appPass = process.env.MONGO_APP_PASSWORD;
+            const appDb = process.env.MONGO_DB;
+            const admin = db.getSiblingDB("admin");
+            try {
+              admin.createUser({
+                user: appUser,
+                pwd: appPass,
+                roles: [{ role: "readWrite", db: appDb }]
+              });
+              print("created app user: " + appUser);
+            } catch (e) {
+              print("app user skip: " + e.message);
+            }
+          '
+
+        echo "mongo setup complete"
+
+volumes:
+  mongo_data:
+  mongo_keyfile:
+
+networks:
+  overtone-network:
+    name: overtone-network

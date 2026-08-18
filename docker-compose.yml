@@ -1,0 +1,49 @@
+# Приложение (api + frontend).
+# Инфра отдельно:
+#   docker compose -f docker-compose.mongo.yaml up -d
+#   docker compose -f docker-compose.redis.yaml up -d
+#   docker compose up -d
+#
+# Сеть: overtone-network (общая с mongo/redis).
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - '3000:3000'
+    mem_limit: 384m
+    cpus: 0.4
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - overtone-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend
+      args:
+        VITE_BOT_USERNAME: ${VITE_BOT_USERNAME:-YourBot}
+    restart: unless-stopped
+    ports:
+      - '8080:80'
+    mem_limit: 64m
+    cpus: 0.1
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - overtone-network
+
+networks:
+  overtone-network:
+    name: overtone-network

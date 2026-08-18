@@ -1,0 +1,41 @@
+# Redis — пароль из .env (REDIS_PASSWORD), сеть overtone-network.
+# Запуск: docker compose -f docker-compose.redis.yaml up -d
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:6379:6379'
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --appendonly
+      - yes
+      - --appendfsync
+      - everysec
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+    volumes:
+      - redis_data:/data
+    mem_limit: 160m
+    cpus: 0.2
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD}', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - overtone-network
+
+volumes:
+  redis_data:
+
+networks:
+  overtone-network:
+    name: overtone-network
