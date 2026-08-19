@@ -11,14 +11,19 @@ async function bootstrap() {
   const frontendDir = join(process.cwd(), '..', 'frontend');
   app.use((request: Request, response: Response, next: NextFunction) => {
     const startedAt = performance.now();
-    logger.log(`HTTP request started: ${request.method} ${request.originalUrl} from ${request.ip}`);
+    logger.log(
+      `HTTP request started: ${request.method} ${request.originalUrl} from ${request.ip}`,
+    );
     response.on('finish', () => {
       logger.log(
         `HTTP request completed: ${request.method} ${request.originalUrl} status=${response.statusCode} durationMs=${Math.round(performance.now() - startedAt)}`,
       );
     });
     response.on('error', (error) => {
-      logger.error(`HTTP response error: ${request.method} ${request.originalUrl}`, error.stack);
+      logger.error(
+        `HTTP response error: ${request.method} ${request.originalUrl}`,
+        error.stack,
+      );
     });
     next();
   });
@@ -31,6 +36,9 @@ async function bootstrap() {
 }
 bootstrap().catch((error: unknown) => {
   const logger = new Logger('Bootstrap');
-  logger.error('Server failed to start', error instanceof Error ? error.stack : String(error));
+  logger.error(
+    'Server failed to start',
+    error instanceof Error ? error.stack : String(error),
+  );
   process.exitCode = 1;
 });
