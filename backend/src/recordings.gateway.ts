@@ -71,7 +71,7 @@ export class RecordingsGateway implements OnModuleInit, OnModuleDestroy {
             }
             session.stream.write(payload);
             session.chunks += 1;
-            this.logger.log(
+            this.logger.debug(
               `Audio chunk received: session=${session.id} chunk=${session.chunks} bytes=${payload.length}`,
             );
             return;
@@ -87,7 +87,7 @@ export class RecordingsGateway implements OnModuleInit, OnModuleDestroy {
             muted?: boolean;
             state?: string;
           };
-          this.logger.log(
+          this.logger.debug(
             `WebSocket command received: client=${client} type=${message.type ?? 'missing'} session=${message.recordingSessionId ?? session?.id ?? 'none'}`,
           );
 
@@ -138,7 +138,7 @@ export class RecordingsGateway implements OnModuleInit, OnModuleDestroy {
             }
             const rms = typeof message.rms === 'number' ? message.rms : 0;
             const level = rms < 0.003 ? 'silent' : 'signal';
-            this.logger.log(
+            this.logger.debug(
               `Microphone level: session=${session.id} rms=${rms.toFixed(5)} state=${level} muted=${Boolean(message.muted)}`,
             );
             return;
@@ -256,7 +256,7 @@ export class RecordingsGateway implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
-    this.logger.log(
+    this.logger.debug(
       `WebSocket response sent: type=${this.messageType(message)}`,
     );
     socket.send(JSON.stringify(message));

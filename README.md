@@ -15,6 +15,8 @@ npm run start:dev
 
 Откройте http://localhost:3000 и разрешите браузеру доступ к микрофону. Проверка API: `GET /api/health`.
 
+Переменные backend лежат в `backend/.env`; для нового окружения используйте `backend/.env.example`. При `NODE_ENV=development` включены уровни NestJS `debug` и `verbose`; в других окружениях остаются `log`, `warn` и `error`.
+
 [circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
 [circleci-url]: https://circleci.com/gh/nestjs/nest
 
