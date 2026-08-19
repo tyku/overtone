@@ -1,6 +1,19 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Overtone
+
+Монорепозиторий с раздельными приложениями:
+
+- `frontend/` — браузерный интерфейс записи: `MediaRecorder` создаёт WebM/Opus-чанки раз в секунду и передаёт их в WebSocket.
+- `backend/` — NestJS API и нативный WebSocket endpoint `ws://localhost:3000/ws/recordings`. Он принимает `start`, бинарные чанки и `finish`, затем собирает итоговый файл в `backend/recordings/`.
+
+## Запуск
+
+```bash
+cd backend
+npm install
+npm run start:dev
+```
+
+Откройте http://localhost:3000 и разрешите браузеру доступ к микрофону. Проверка API: `GET /api/health`.
 
 [circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
 [circleci-url]: https://circleci.com/gh/nestjs/nest

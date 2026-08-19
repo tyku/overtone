@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Overtone — запись диктовки</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="recorder" aria-live="polite">
+      <p class="eyebrow">Overtone</p>
+      <h1>Запись диктовки</h1>
+      <p id="status" class="status">Готов к записи</p>
+      <p id="timer" class="timer">00:00</p>
+      <label class="input-picker" for="audioInput">
+        <span>Микрофон</span>
+        <select id="audioInput">
+          <option value="">Выберите микрофон</option>
+        </select>
+      </label>
+      <p id="inputLevel" class="input-level">Уровень сигнала появится после старта записи</p>
+      <button id="recordButton" class="record-button" type="button" aria-label="Начать запись">
+        <span class="mic" aria-hidden="true"></span>
+      </button>
+      <p class="hint">Нажмите, чтобы начать запись</p>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
