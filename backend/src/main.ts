@@ -47,7 +47,9 @@ async function bootstrap() {
   await app.listen(port);
   logger.log(`Server started: http://localhost:${port}`);
   logger.log(`Static frontend directory: ${frontendDir}`);
-  logger.log(`WebSocket endpoint: ws://localhost:${port}/ws/recordings`);
+  logger.log(
+    `Recording upload endpoint: http://localhost:${port}/api/recordings`,
+  );
 }
 bootstrap().catch((error: unknown) => {
   const logger = new Logger('Bootstrap');

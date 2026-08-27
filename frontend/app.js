@@ -7,11 +7,16 @@ const status = document.querySelector('#status');
 const timer = document.querySelector('#timer');
 const hint = document.querySelector('.hint');
 const audioInput = document.querySelector('#audioInput');
+const recovery = document.querySelector('#recovery');
+const recoveryMessage = document.querySelector('#recoveryMessage');
+const continueButton = document.querySelector('#continueButton');
+const uploadButton = document.querySelector('#uploadButton');
+const discardButton = document.querySelector('#discardButton');
 
 const selector = new AudioInputSelector(audioInput, 'overtone.audioInputId');
 const meter = new AudioMeter(document.querySelector('#inputLevel'));
 const client = new RecordingClient({
-  websocketUrl: () => `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/recordings`,
+  uploadUrl: () => '/api/recordings',
   onCompleted: handleCompleted,
   onError: handleClientError,
   onTrackState: handleTrackState,
@@ -19,6 +24,7 @@ const client = new RecordingClient({
 
 let startedAt;
 let timerId;
+let recoverableRecording;
 
 function setState(nextStatus, nextHint, recording = false) {
   status.textContent = nextStatus;
@@ -37,6 +43,7 @@ function resetUi() {
 function showError(message, nextHint = 'Проверьте устройство и попробуйте снова') {
   resetUi();
   setState(message, nextHint);
+  void refreshRecovery();
 }
 
 function updateTimer() {
@@ -44,10 +51,10 @@ function updateTimer() {
   timer.textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-async function startRecording() {
+async function startRecording(recordingId) {
   if (client.state !== 'idle') return;
   recordButton.disabled = true;
-  setState('Подключаем микрофон…', 'Запуск записи');
+  setState('Подключаем микрофон…', recordingId ? 'Восстанавливаем запись' : 'Запуск записи');
 
   try {
     if (!selector.selectedDeviceId) {
@@ -57,13 +64,14 @@ async function startRecording() {
       recordButton.disabled = false;
       return;
     }
-    const { stream, audioTrack } = await client.start(selector.selectedDeviceId);
+    const { stream, audioTrack } = await client.start(selector.selectedDeviceId, recordingId);
     await selector.refresh();
     startedAt = Date.now();
     timerId = window.setInterval(updateTimer, 250);
     updateTimer();
-    setState('Идёт запись', 'Нажмите, чтобы остановить и сохранить', true);
-    await meter.start(stream, audioTrack, (level) => client.sendAudioLevel(level));
+    hideRecovery();
+    setState('Идёт запись', 'Аудио сохраняется на этом устройстве', true);
+    await meter.start(stream, audioTrack, () => undefined);
     recordButton.disabled = false;
   } catch (error) {
     showError(microphoneErrorMessage(error), 'Проверьте разрешение и устройство ввода');
@@ -73,17 +81,19 @@ async function startRecording() {
 function stopRecording() {
   if (client.state !== 'recording') return;
   recordButton.disabled = true;
-  setState('Сохраняем запись…', 'Отправляем последний чанк на сервер', true);
+  setState('Отправляем запись…', 'Сохранённое аудио загружается на сервер', true);
   client.stop();
 }
 
 function handleCompleted(message) {
   resetUi();
-  setState(`Сохранено: ${message.fileName}`, `Получено ${message.chunks} чанков · ${(message.bytes / 1024).toFixed(1)} КБ`);
+  const files = message.fileNames.join(', ');
+  setState(`Сохранено: ${files}`, `${message.segments} сегм. · ${(message.bytes / 1024 / 1024).toFixed(1)} МБ`);
+  void refreshRecovery();
 }
 
 function handleClientError(error) {
-  showError(`Ошибка: ${error.message}`, 'Попробуйте ещё раз');
+  showError(`Ошибка: ${error.message}`, 'Запись сохранена локально — загрузку можно повторить');
 }
 
 function handleTrackState(state) {
@@ -99,8 +109,73 @@ function microphoneErrorMessage(error) {
     AbortError: 'Не удалось запустить микрофон',
     SecurityError: 'Браузер заблокировал доступ к микрофону',
   };
-  return messages[error?.name] ?? `Не удалось включить микрофон: ${error?.message ?? 'неизвестная ошибка'}`;
+  return messages[error?.name] ?? error?.message ?? 'Не удалось включить микрофон';
 }
 
-recordButton.addEventListener('click', () => client.state === 'recording' ? stopRecording() : startRecording());
-void selector.refresh();
+async function refreshRecovery() {
+  const recordings = await client.getRecoverableRecordings();
+  recoverableRecording = recordings[0];
+  if (!recoverableRecording) {
+    hideRecovery();
+    return;
+  }
+  const startedAt = new Date(recoverableRecording.startedAt).toLocaleString('ru-RU');
+  recoveryMessage.textContent = `Незавершённая запись от ${startedAt}`;
+  recovery.hidden = false;
+}
+
+function hideRecovery() {
+  recovery.hidden = true;
+}
+
+async function uploadRecoveredRecording() {
+  if (!recoverableRecording || client.state !== 'idle') return;
+  setRecoveryButtonsDisabled(true);
+  recordButton.disabled = true;
+  setState('Отправляем сохранённую запись…', 'Не закрывайте страницу до завершения загрузки');
+  try {
+    await client.upload(recoverableRecording.id);
+  } catch (error) {
+    handleClientError(error);
+  } finally {
+    setRecoveryButtonsDisabled(false);
+  }
+}
+
+async function discardRecoveredRecording() {
+  if (!recoverableRecording || client.state !== 'idle') return;
+  if (!window.confirm('Удалить сохранённую запись с этого устройства?')) return;
+  setRecoveryButtonsDisabled(true);
+  await client.discard(recoverableRecording.id);
+  await refreshRecovery();
+  setRecoveryButtonsDisabled(false);
+}
+
+function setRecoveryButtonsDisabled(disabled) {
+  continueButton.disabled = disabled;
+  uploadButton.disabled = disabled;
+  discardButton.disabled = disabled;
+}
+
+recordButton.addEventListener('click', () =>
+  client.state === 'recording' ? stopRecording() : void startRecording(),
+);
+continueButton.addEventListener('click', () => {
+  if (recoverableRecording) void startRecording(recoverableRecording.id);
+});
+uploadButton.addEventListener('click', () => void uploadRecoveredRecording());
+discardButton.addEventListener('click', () => void discardRecoveredRecording());
+
+async function initialize() {
+  recordButton.disabled = true;
+  try {
+    await Promise.all([selector.refresh(), client.initialize()]);
+    await refreshRecovery();
+    recordButton.disabled = false;
+  } catch (error) {
+    showError(`Ошибка локального хранилища: ${error.message}`, 'Запись не будет начата без надёжного локального сохранения');
+    recordButton.disabled = true;
+  }
+}
+
+void initialize();

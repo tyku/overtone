@@ -1,18 +1,46 @@
+import { RecordingStore } from './recording-store.js';
+
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+const MINIMUM_FREE_STORAGE_BYTES = 50 * 1024 * 1024;
+
 export class RecordingClient {
-  constructor({ websocketUrl, onCompleted, onError, onTrackState }) {
-    this.websocketUrl = websocketUrl;
+  constructor({ uploadUrl, onCompleted, onError, onTrackState }) {
+    this.uploadUrl = uploadUrl;
     this.onCompleted = onCompleted;
     this.onError = onError;
     this.onTrackState = onTrackState;
+    this.store = new RecordingStore();
     this.state = 'idle';
-    this.chunkSendQueue = Promise.resolve();
-    this.lastLevelReportAt = 0;
+    this.chunkWriteQueue = Promise.resolve();
   }
 
-  async start(deviceId) {
+  async initialize() {
+    await this.store.initialize();
+    this.cleanupTimer = window.setInterval(
+      () => void this.store.cleanupExpired(),
+      CLEANUP_INTERVAL_MS,
+    );
+    return this.store.getRecoverableRecordings();
+  }
+
+  getRecoverableRecordings() {
+    return this.store.getRecoverableRecordings();
+  }
+
+  async start(deviceId, recordingId) {
     if (this.state !== 'idle') throw new Error('Запись уже запускается или идёт');
     this.state = 'starting';
     try {
+      await this.store.cleanupExpired();
+      await navigator.storage?.persist?.();
+      const { quota, usage } = await this.store.storageEstimate();
+      if (
+        typeof quota === 'number' &&
+        typeof usage === 'number' &&
+        quota - usage < MINIMUM_FREE_STORAGE_BYTES
+      ) {
+        throw new Error('Недостаточно свободного места для новой записи');
+      }
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: { deviceId: { exact: deviceId } },
       });
@@ -20,10 +48,15 @@ export class RecordingClient {
       if (!this.audioTrack || this.audioTrack.readyState !== 'live') {
         throw new Error('Микрофон не передаёт аудиоданные');
       }
-      await this.connect();
-      return { stream: this.mediaStream, audioTrack: this.audioTrack };
+      await this.startRecorder(recordingId);
+      return {
+        stream: this.mediaStream,
+        audioTrack: this.audioTrack,
+        recordingId: this.recordingId,
+      };
     } catch (error) {
-      this.cleanup();
+      this.cleanupMedia();
+      this.state = 'idle';
       throw error;
     }
   }
@@ -34,111 +67,129 @@ export class RecordingClient {
     this.recorder.stop();
   }
 
-  sendAudioLevel({ rms, muted }) {
-    const now = Date.now();
-    if (now - this.lastLevelReportAt < 1000) return;
-    this.sendJson({ type: 'audio-level', recordingSessionId: this.sessionId, rms, muted });
-    this.lastLevelReportAt = now;
+  async upload(recordingId) {
+    if (this.state !== 'idle' && this.state !== 'stopping') {
+      throw new Error('Сначала завершите текущую операцию');
+    }
+    this.state = 'uploading';
+    try {
+      await this.store.markStatus(recordingId, 'uploading');
+      const recording = await this.store.requireRecording(recordingId);
+      const segments = await this.store.getSegments(recordingId);
+      if (!segments.length) throw new Error('В записи нет сохранённых аудиоданных');
+
+      const saved = [];
+      for (const [index, segment] of segments.entries()) {
+        const response = await fetch(this.uploadUrl(), {
+          method: 'POST',
+          headers: {
+            'Content-Type': segment.mimeType,
+            'X-Session-Id': recording.sessionId,
+            'X-Recording-Id': recording.id,
+            'X-Segment-No': String(segment.number),
+            'X-Recording-Complete': String(index === segments.length - 1),
+          },
+          body: segment.blob,
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => undefined);
+          throw new Error(error?.message ?? `Сервер ответил ${response.status}`);
+        }
+        saved.push(await response.json());
+      }
+
+      await this.store.markStatus(recordingId, 'uploaded');
+      await this.store.deleteRecording(recordingId);
+      this.state = 'idle';
+      this.onCompleted({
+        recordingId,
+        segments: saved.length,
+        bytes: saved.reduce((total, item) => total + item.bytes, 0),
+        fileNames: saved.map(({ fileName }) => fileName),
+      });
+    } catch (error) {
+      await this.store.markStatus(recordingId, 'failed').catch(() => undefined);
+      this.state = 'idle';
+      throw error;
+    }
+  }
+
+  discard(recordingId) {
+    return this.store.deleteRecording(recordingId);
   }
 
   cleanup() {
-    clearTimeout(this.connectionTimeout);
+    this.cleanupMedia();
     this.state = 'idle';
     this.recorder = undefined;
-    this.sessionId = undefined;
-    this.chunkSendQueue = Promise.resolve();
-    this.mediaStream?.getTracks().forEach((track) => track.stop());
-    this.mediaStream = undefined;
-    this.audioTrack = undefined;
-    if (this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) {
-      this.socket.close();
-    }
-    this.socket = undefined;
+    this.recordingId = undefined;
+    this.segmentNo = undefined;
+    this.chunkWriteQueue = Promise.resolve();
   }
 
-  async connect() {
-    await new Promise((resolve, reject) => {
-      this.socket = new WebSocket(this.websocketUrl());
-      const timeout = window.setTimeout(() => reject(new Error('Сервер не ответил за 5 секунд')), 5000);
-      this.connectionTimeout = timeout;
-
-      this.socket.addEventListener('open', () => {
-        clearTimeout(timeout);
-        try {
-          this.startRecorder();
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      }, { once: true });
-      this.socket.addEventListener('error', () => {
-        clearTimeout(timeout);
-        const error = new Error('Не удалось подключиться к серверу');
-        if (this.state === 'starting') reject(error);
-        else this.onError(error);
-      });
-      this.socket.addEventListener('message', ({ data }) => this.handleServerMessage(data));
-    });
-  }
-
-  startRecorder() {
+  async startRecorder(recordingId) {
     const options = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 32000 }
       : undefined;
     this.recorder = new MediaRecorder(this.mediaStream, options);
-    this.sessionId = crypto.randomUUID();
-    this.sendJson({
-      type: 'start',
-      recordingSessionId: this.sessionId,
-      mimeType: this.recorder.mimeType.split(';', 1)[0] || 'audio/webm',
+    const metadata = {
+      mimeType: this.recorder.mimeType || 'audio/webm',
       inputLabel: this.audioTrack.label,
       trackSettings: this.audioTrack.getSettings(),
-    });
+    };
+    const active = recordingId
+      ? await this.store.resumeRecording(recordingId, metadata)
+      : await this.store.createRecording(metadata);
+    this.recordingId = active.recording.id;
+    this.segmentNo = active.segmentNo;
+    this.chunkNo = 0;
+    this.chunkWriteQueue = Promise.resolve();
     this.bindTrackEvents();
     this.bindRecorderEvents();
-    this.chunkSendQueue = Promise.resolve();
     this.recorder.start(1000);
     this.state = 'recording';
-    this.lastLevelReportAt = 0;
   }
 
   bindTrackEvents() {
-    this.audioTrack.addEventListener('mute', () => this.publishTrackState('mute'));
-    this.audioTrack.addEventListener('unmute', () => this.publishTrackState('unmute'));
-    this.audioTrack.addEventListener('ended', () => this.publishTrackState('ended'));
+    this.audioTrack.addEventListener('mute', () => this.onTrackState('mute'));
+    this.audioTrack.addEventListener('unmute', () => this.onTrackState('unmute'));
+    this.audioTrack.addEventListener('ended', () => this.onTrackState('ended'));
   }
 
   bindRecorderEvents() {
     this.recorder.addEventListener('dataavailable', ({ data }) => {
       if (!data.size) return;
-      this.chunkSendQueue = this.chunkSendQueue.then(async () => {
-        if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(await data.arrayBuffer());
-      });
+      const chunkNo = ++this.chunkNo;
+      this.chunkWriteQueue = this.chunkWriteQueue.then(() =>
+        this.store.addChunk({
+          recordingId: this.recordingId,
+          segmentNo: this.segmentNo,
+          chunkNo,
+          blob: data,
+        }),
+      );
     });
-    this.recorder.addEventListener('stop', () => void this.finishUpload(), { once: true });
+    this.recorder.addEventListener('stop', () => void this.finishRecording(), { once: true });
   }
 
-  async finishUpload() {
+  async finishRecording() {
+    const recordingId = this.recordingId;
+    const segmentNo = this.segmentNo;
     try {
-      await this.chunkSendQueue;
-      this.sendJson({ type: 'finish' });
+      await this.chunkWriteQueue;
+      await this.store.finishSegment(recordingId, segmentNo);
+      this.cleanupMedia();
+      await this.upload(recordingId);
     } catch (error) {
-      this.onError(new Error(`Ошибка отправки: ${error.message}`));
+      this.cleanupMedia();
+      this.state = 'idle';
+      this.onError(new Error(`Ошибка сохранения: ${error.message}`));
     }
   }
 
-  handleServerMessage(data) {
-    const message = JSON.parse(data);
-    if (message.type === 'completed') this.onCompleted(message);
-    if (message.type === 'error') this.onError(new Error(message.message));
-  }
-
-  publishTrackState(state) {
-    this.onTrackState(state);
-    this.sendJson({ type: 'audio-track-state', recordingSessionId: this.sessionId, state });
-  }
-
-  sendJson(message) {
-    if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify(message));
+  cleanupMedia() {
+    this.mediaStream?.getTracks().forEach((track) => track.stop());
+    this.mediaStream = undefined;
+    this.audioTrack = undefined;
   }
 }

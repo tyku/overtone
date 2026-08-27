@@ -19,6 +19,15 @@
         </select>
       </label>
       <p id="inputLevel" class="input-level">Уровень сигнала появится после старта записи</p>
+      <section id="recovery" class="recovery" hidden>
+        <strong>Есть сохранённая запись</strong>
+        <p id="recoveryMessage"></p>
+        <div class="recovery-actions">
+          <button id="continueButton" type="button">Продолжить</button>
+          <button id="uploadButton" type="button">Отправить</button>
+          <button id="discardButton" type="button" class="danger">Удалить</button>
+        </div>
+      </section>
       <button id="recordButton" class="record-button" type="button" aria-label="Начать запись">
         <span class="mic" aria-hidden="true"></span>
       </button>

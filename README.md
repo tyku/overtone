@@ -2,8 +2,10 @@
 
 Монорепозиторий с раздельными приложениями:
 
-- `frontend/` — браузерный интерфейс записи: `MediaRecorder` создаёт WebM/Opus-чанки раз в секунду и передаёт их в WebSocket.
-- `backend/` — NestJS API и нативный WebSocket endpoint `ws://localhost:3000/ws/recordings`. Он принимает `start`, бинарные чанки и `finish`, затем собирает итоговый файл в `backend/recordings/`.
+- `frontend/` — браузерный интерфейс записи: `MediaRecorder` создаёт WebM/Opus-чанки и сохраняет их локально до завершения записи.
+- `backend/` — NestJS API, принимающий завершённые записи по HTTP.
+
+Контракт записи, восстановления после перезагрузки, HTTP-загрузки и очистки локальных данных описан в [`CLIENT_CONTRACT.md`](CLIENT_CONTRACT.md).
 
 ## Запуск
 
@@ -14,6 +16,8 @@ npm run start:dev
 ```
 
 Откройте http://localhost:3000 и разрешите браузеру доступ к микрофону. Проверка API: `GET /api/health`.
+
+Во время записи секундные `WebM/Opus`-чанки сохраняются в IndexedDB. После остановки клиент отправляет каждый медиасегмент запросом `POST /api/recordings`; сервер сохраняет его в `backend/recordings/<session-id>/`. WebSocket в тракте записи не используется.
 
 Переменные backend лежат в `backend/.env`; для нового окружения используйте `backend/.env.example`. При `NODE_ENV=development` включены уровни NestJS `debug` и `verbose`; в других окружениях остаются `log`, `warn` и `error`.
 
