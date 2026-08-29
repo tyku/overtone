@@ -2,25 +2,27 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { RecordingRemuxService } from './recording-remux.service';
+import { RecordingAudioEncoderService } from './recording-audio-encoder.service';
 import { RecordingStorageService } from './recording-storage.service';
 
 describe('RecordingStorageService', () => {
   let temporaryDirectory: string;
   let service: RecordingStorageService;
-  let remuxer: Pick<RecordingRemuxService, 'remux'>;
+  let encoder: Pick<RecordingAudioEncoderService, 'encodeToM4a'>;
 
   beforeEach(async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), 'overtone-recordings-'));
-    remuxer = {
-      remux: jest.fn(async (inputPaths: string[], outputPath: string) => {
+    encoder = {
+      encodeToM4a: jest.fn(async (inputPaths: string[], outputPath: string) => {
         const contents = await Promise.all(
           inputPaths.map((path) => readFile(path)),
         );
         await writeFile(outputPath, Buffer.concat(contents));
       }),
     };
-    service = new RecordingStorageService(remuxer as RecordingRemuxService);
+    service = new RecordingStorageService(
+      encoder as RecordingAudioEncoderService,
+    );
     Object.defineProperty(service, 'recordingsDir', {
       value: temporaryDirectory,
     });
@@ -54,15 +56,16 @@ describe('RecordingStorageService', () => {
       fileName: 'session-1/recording-1.segment-0001.webm',
       alreadyExisted: false,
       finalized: {
-        fileName: 'session-1/recording-1.webm',
+        fileName: 'session-1/recording-1.m4a',
         bytes: 5,
-        extension: 'webm',
+        extension: 'm4a',
+        mimeType: 'audio/mp4',
       },
     });
     expect(retry).toMatchObject({
       bytes: 5,
       finalized: {
-        fileName: 'session-1/recording-1.webm',
+        fileName: 'session-1/recording-1.m4a',
         bytes: 5,
       },
     });
@@ -71,7 +74,7 @@ describe('RecordingStorageService', () => {
     );
   });
 
-  it('remuxes multiple segments into one final recording', async () => {
+  it('encodes multiple segments into one M4A recording', async () => {
     const metadata = {
       sessionId: 'session-2',
       recordingId: 'recording-2',
@@ -87,11 +90,13 @@ describe('RecordingStorageService', () => {
       recordingComplete: true,
     });
 
-    expect(remuxer.remux).toHaveBeenCalledTimes(1);
+    expect(encoder.encodeToM4a).toHaveBeenCalledTimes(1);
     expect(completed).toMatchObject({
       finalized: {
-        fileName: 'session-2/recording-2.webm',
+        fileName: 'session-2/recording-2.m4a',
         bytes: 12,
+        extension: 'm4a',
+        mimeType: 'audio/mp4',
       },
     });
     await expect(

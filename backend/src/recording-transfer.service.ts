@@ -10,6 +10,7 @@ import { RecordingUploadMetadata } from './recording.types';
 export type RecordingTransferInput = {
   localPath: string;
   extension: string;
+  contentType: string;
   metadata: RecordingUploadMetadata;
 };
 
@@ -43,7 +44,7 @@ export class RecordingTransferService {
     const stored = await this.objectStorage.uploadFile({
       sourcePath: input.localPath,
       objectKey,
-      contentType: input.metadata.mimeType,
+      contentType: input.contentType,
       metadata: {
         'session-id': input.metadata.sessionId,
         'recording-id': input.metadata.recordingId,

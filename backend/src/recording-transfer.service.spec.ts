@@ -10,7 +10,7 @@ describe('RecordingTransferService', () => {
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), 'overtone-transfer-'));
-    localPath = join(directory, 'recording.webm');
+    localPath = join(directory, 'recording.m4a');
     await writeFile(localPath, 'audio');
   });
 
@@ -33,7 +33,8 @@ describe('RecordingTransferService', () => {
 
     const stored = await service.moveToObjectStorage({
       localPath,
-      extension: 'webm',
+      extension: 'm4a',
+      contentType: 'audio/mp4',
       metadata: {
         sessionId: 'visit-123',
         recordingId: 'recording-1',
@@ -45,10 +46,11 @@ describe('RecordingTransferService', () => {
 
     expect(uploadFile).toHaveBeenCalledWith(
       expect.objectContaining({
-        objectKey: 'requests/visit-123/input/recording-1.webm',
+        objectKey: 'requests/visit-123/input/recording-1.m4a',
+        contentType: 'audio/mp4',
       }),
     );
-    expect(stored.objectKey).toBe('requests/visit-123/input/recording-1.webm');
+    expect(stored.objectKey).toBe('requests/visit-123/input/recording-1.m4a');
     await expect(access(localPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
@@ -61,7 +63,8 @@ describe('RecordingTransferService', () => {
     await expect(
       service.moveToObjectStorage({
         localPath,
-        extension: 'webm',
+        extension: 'm4a',
+        contentType: 'audio/mp4',
         metadata: {
           sessionId: 'visit-123',
           recordingId: 'recording-1',
@@ -91,7 +94,8 @@ describe('RecordingTransferService', () => {
     const service = new RecordingTransferService({ uploadFile });
     const input = {
       localPath,
-      extension: 'webm',
+      extension: 'm4a',
+      contentType: 'audio/mp4',
       metadata: {
         sessionId: 'visit-123',
         recordingId: 'recording-1',
@@ -105,7 +109,7 @@ describe('RecordingTransferService', () => {
     const second = service.moveToObjectStorage(input);
     finishUpload?.({
       bucket: 'medical-scribe',
-      objectKey: 'requests/visit-123/input/recording-1.webm',
+      objectKey: 'requests/visit-123/input/recording-1.m4a',
       bytes: 5,
     });
 

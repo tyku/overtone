@@ -37,6 +37,7 @@ export class RecordingUploadService {
     const stored = await this.transfer.moveToObjectStorage({
       localPath: local.finalized.localPath,
       extension: local.finalized.extension,
+      contentType: local.finalized.mimeType,
       metadata,
     });
     return {

@@ -26,6 +26,7 @@ export type RecordingFinalized = {
   fileName: string;
   localPath: string;
   extension: string;
+  mimeType: string;
   bytes: number;
   alreadyExisted: boolean;
 };

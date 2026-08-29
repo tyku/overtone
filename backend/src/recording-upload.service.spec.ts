@@ -14,9 +14,10 @@ describe('RecordingUploadService', () => {
         fileName: 'visit-123/recording-1.segment-0002.webm',
         alreadyExisted: false,
         finalized: {
-          fileName: 'visit-123/recording-1.webm',
-          localPath: '/recordings/visit-123/recording-1.webm',
-          extension: 'webm',
+          fileName: 'visit-123/recording-1.m4a',
+          localPath: '/recordings/visit-123/recording-1.m4a',
+          extension: 'm4a',
+          mimeType: 'audio/mp4',
           bytes: 10,
           alreadyExisted: false,
         },
@@ -24,7 +25,7 @@ describe('RecordingUploadService', () => {
     } as unknown as RecordingStorageService;
     const moveToObjectStorage = jest.fn().mockResolvedValue({
       bucket: 'medical-scribe',
-      objectKey: 'requests/visit-123/input/recording-1.webm',
+      objectKey: 'requests/visit-123/input/recording-1.m4a',
       bytes: 10,
     });
     const transfer = {
@@ -42,15 +43,16 @@ describe('RecordingUploadService', () => {
 
     expect(moveToObjectStorage).toHaveBeenCalledWith(
       expect.objectContaining({
-        localPath: '/recordings/visit-123/recording-1.webm',
-        extension: 'webm',
+        localPath: '/recordings/visit-123/recording-1.m4a',
+        extension: 'm4a',
+        contentType: 'audio/mp4',
       }),
     );
     expect(result).toMatchObject({
-      finalFileName: 'requests/visit-123/input/recording-1.webm',
+      finalFileName: 'requests/visit-123/input/recording-1.m4a',
       finalBytes: 10,
       s3Bucket: 'medical-scribe',
-      s3ObjectKey: 'requests/visit-123/input/recording-1.webm',
+      s3ObjectKey: 'requests/visit-123/input/recording-1.m4a',
     });
   });
 });

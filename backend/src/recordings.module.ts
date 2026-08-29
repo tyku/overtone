@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ObjectStorageModule } from './object-storage/object-storage.module';
-import { RecordingRemuxService } from './recording-remux.service';
+import { RecordingAudioEncoderService } from './recording-audio-encoder.service';
 import { RecordingStorageService } from './recording-storage.service';
 import { RecordingTransferService } from './recording-transfer.service';
 import { RecordingUploadService } from './recording-upload.service';
@@ -10,7 +10,7 @@ import { RecordingsController } from './recordings.controller';
   imports: [ObjectStorageModule],
   controllers: [RecordingsController],
   providers: [
-    RecordingRemuxService,
+    RecordingAudioEncoderService,
     RecordingStorageService,
     RecordingTransferService,
     RecordingUploadService,

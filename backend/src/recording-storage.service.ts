@@ -9,7 +9,7 @@ import { link, mkdir, open, stat, unlink } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
-import { RecordingRemuxService } from './recording-remux.service';
+import { RecordingAudioEncoderService } from './recording-audio-encoder.service';
 import {
   RecordingFinalized,
   RecordingLocallySaved,
@@ -26,7 +26,7 @@ export class RecordingStorageService implements OnModuleInit {
     Promise<RecordingFinalized>
   >();
 
-  constructor(private readonly remuxer: RecordingRemuxService) {}
+  constructor(private readonly encoder: RecordingAudioEncoderService) {}
 
   async onModuleInit() {
     await mkdir(this.recordingsDir, { recursive: true });
@@ -133,14 +133,19 @@ export class RecordingStorageService implements OnModuleInit {
     extension: string,
   ): Promise<RecordingFinalized> {
     const sessionDir = join(this.recordingsDir, metadata.sessionId);
-    const finalPath = join(sessionDir, `${metadata.recordingId}.${extension}`);
+    const finalExtension = 'm4a';
+    const finalPath = join(
+      sessionDir,
+      `${metadata.recordingId}.${finalExtension}`,
+    );
     const existing = await this.fileStat(finalPath);
     if (existing) {
       await this.deleteSegments(metadata, extension);
       return {
         fileName: relative(this.recordingsDir, finalPath),
         localPath: finalPath,
-        extension,
+        extension: finalExtension,
+        mimeType: 'audio/mp4',
         bytes: existing.size,
         alreadyExisted: true,
       };
@@ -163,29 +168,20 @@ export class RecordingStorageService implements OnModuleInit {
     }
 
     let alreadyExisted = false;
-    if (segmentPaths.length === 1) {
+    const temporaryPath = join(
+      sessionDir,
+      `${metadata.recordingId}.${randomUUID()}.part.${finalExtension}`,
+    );
+    try {
+      await this.encoder.encodeToM4a(segmentPaths, temporaryPath);
       try {
-        await link(segmentPaths[0], finalPath);
+        await link(temporaryPath, finalPath);
       } catch (error) {
         if (!this.isFileExistsError(error)) throw error;
         alreadyExisted = true;
       }
-    } else {
-      const temporaryPath = join(
-        sessionDir,
-        `${metadata.recordingId}.${randomUUID()}.part.${extension}`,
-      );
-      try {
-        await this.remuxer.remux(segmentPaths, temporaryPath);
-        try {
-          await link(temporaryPath, finalPath);
-        } catch (error) {
-          if (!this.isFileExistsError(error)) throw error;
-          alreadyExisted = true;
-        }
-      } finally {
-        await unlink(temporaryPath).catch(() => undefined);
-      }
+    } finally {
+      await unlink(temporaryPath).catch(() => undefined);
     }
 
     const finalized = await stat(finalPath);
@@ -196,7 +192,8 @@ export class RecordingStorageService implements OnModuleInit {
     return {
       fileName: relative(this.recordingsDir, finalPath),
       localPath: finalPath,
-      extension,
+      extension: finalExtension,
+      mimeType: 'audio/mp4',
       bytes: finalized.size,
       alreadyExisted,
     };
