@@ -25,6 +25,18 @@ docker compose --env-file backend/.env -f docker-compose.s3.yaml up -d
 docker compose --env-file backend/.env up -d --build
 ```
 
+Из корня Overtone также можно запустить inference из соседнего репозитория `../medical-scribe`. Сначала должен работать общий MinIO, затем выберите один режим:
+
+```bash
+# Mock без GPU
+docker compose --env-file backend/.env -f docker-compose.inference.mock.yaml up -d --build
+
+# Боевой GPU-режим
+docker compose --env-file backend/.env -f docker-compose.inference.gpu.yaml up -d --build
+```
+
+Оба файла описывают один сервис `inference` и используют порт `50051`, поэтому одновременно запускается только один режим. При переключении Compose пересоздаст этот сервис с нужным Dockerfile и `MEDSCRIBE_EXECUTION_MODE`.
+
 Скопируйте `backend/.env.example` в `backend/.env`. Если backend запускается через `npm run start:dev`, укажите `S3_ENDPOINT=http://localhost:9000`; внутри Docker используется `http://minio:9000`. Для Beget/AWS задайте endpoint, region, bucket и ключи соответствующего S3-хранилища.
 
 ```bash
