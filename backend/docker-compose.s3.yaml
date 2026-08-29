@@ -1,5 +1,7 @@
-# Local S3-compatible storage for development.
+# Local S3-compatible storage for Overtone and GPU service.
 # Запуск: docker compose -f docker-compose.s3.yaml up -d
+# Этот compose создаёт общую сеть overtone-network; GPU compose подключает её
+# как external network.
 
 services:
   minio:

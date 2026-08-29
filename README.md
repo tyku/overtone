@@ -18,6 +18,8 @@ cd backend
 docker compose -f docker-compose.s3.yaml up -d
 ```
 
+Этот compose также создаёт общую сеть `overtone-network`. Mock- и GPU-сервисы подключаются к ней как к external network и используют тот же MinIO по адресу `http://minio:9000`; отдельный MinIO в `compose.local.yml` и `compose.gpu.yml` отключён.
+
 Скопируйте `.env.example` в `.env`. Если backend запускается через `npm run start:dev`, укажите `S3_ENDPOINT=http://localhost:9000`; внутри Docker используется `http://minio:9000`. Для Beget/AWS задайте endpoint, region, bucket и ключи соответствующего S3-хранилища.
 
 ```bash

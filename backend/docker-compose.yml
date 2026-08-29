@@ -5,7 +5,7 @@
 #   docker compose -f docker-compose.s3.yaml up -d
 #   docker compose up -d
 #
-# Сеть: overtone-network (общая с mongo/redis).
+# Сеть: overtone-network (общая с mongo/redis/minio/GPU service).
 
 services:
   api:
