@@ -1,11 +1,14 @@
 # Single-node MongoDB replica set + auth.
-# Дефолтных логина/пароля нет — задай в .env:
+# Дефолтных логина/пароля нет — задай в backend/.env:
 #   MONGO_ROOT_USERNAME / MONGO_ROOT_PASSWORD  — админ (роль root)
 #   MONGO_APP_USERNAME / MONGO_APP_PASSWORD    — приложение (по умолчанию poopAdmin)
 #   MONGO_DB                                  — БД приложения
 #
-# Запуск: docker compose -f docker-compose.mongo.yaml up -d
+# Запуск из корня: docker compose --env-file backend/.env -f docker-compose.mongo.yaml up -d
 # Сеть: overtone-network
+
+# Сохраняет существующие Mongo volumes после переноса файла в корень.
+name: backend
 
 services:
   mongo:

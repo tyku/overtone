@@ -1,20 +1,23 @@
 # Приложение (api + frontend).
 # Инфра отдельно:
-#   docker compose -f docker-compose.mongo.yaml up -d
-#   docker compose -f docker-compose.redis.yaml up -d
-#   docker compose -f docker-compose.s3.yaml up -d
-#   docker compose up -d
+#   docker compose --env-file backend/.env -f docker-compose.mongo.yaml up -d
+#   docker compose --env-file backend/.env -f docker-compose.redis.yaml up -d
+#   docker compose --env-file backend/.env -f docker-compose.s3.yaml up -d
+#   docker compose --env-file backend/.env up -d
 #
 # Сеть: overtone-network (общая с mongo/redis/minio/GPU service).
+
+# Сохраняет имена контейнеров и volumes после переноса Compose из backend/.
+name: backend
 
 services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: backend/Dockerfile
       target: backend
     restart: unless-stopped
-    env_file: .env
+    env_file: backend/.env
     ports:
       - '3000:3000'
     volumes:
@@ -32,10 +35,8 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: backend/Dockerfile
       target: frontend
-      args:
-        VITE_BOT_USERNAME: ${VITE_BOT_USERNAME:-YourBot}
     restart: unless-stopped
     ports:
       - '8080:80'

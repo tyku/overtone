@@ -1,5 +1,8 @@
-# Redis — пароль из .env (REDIS_PASSWORD), сеть overtone-network.
-# Запуск: docker compose -f docker-compose.redis.yaml up -d
+# Redis — пароль из backend/.env (REDIS_PASSWORD), сеть overtone-network.
+# Запуск из корня: docker compose --env-file backend/.env -f docker-compose.redis.yaml up -d
+
+# Сохраняет существующий Redis volume после переноса файла в корень.
+name: backend
 
 services:
   redis:

@@ -1,7 +1,10 @@
 # Local S3-compatible storage for Overtone and GPU service.
-# Запуск: docker compose -f docker-compose.s3.yaml up -d
+# Запуск из корня: docker compose --env-file backend/.env -f docker-compose.s3.yaml up -d
 # Этот compose создаёт общую сеть overtone-network; GPU compose подключает её
 # как external network.
+
+# Сохраняет существующий backend_minio_data и старый Compose project.
+name: backend
 
 services:
   minio:
