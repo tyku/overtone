@@ -1,149 +1,294 @@
 # Overtone
 
-Монорепозиторий с раздельными приложениями:
+Runbook для разработчика или AI-агента, которому нужно локально поднять весь контур записи и обработки аудио.
 
-- `frontend/` — браузерный интерфейс записи: `MediaRecorder` создаёт WebM/Opus-чанки и сохраняет их локально до завершения записи.
-- `backend/` — NestJS API, принимающий завершённые записи по HTTP и переносящий итоговый файл в S3.
+## Что входит в контур
 
-Контракт записи, восстановления после перезагрузки, HTTP-загрузки и очистки локальных данных описан в [`CLIENT_CONTRACT.md`](CLIENT_CONTRACT.md).
-
-## Запуск
-
-Backend использует FFmpeg для объединения медиасегментов и преобразования итоговой записи в `M4A/AAC` с битрейтом 64 kbit/s. В macOS установите FFmpeg командой `brew install ffmpeg`; в Docker-образ он устанавливается автоматически.
-
-Для локальной разработки поднимите MinIO и автоматически создайте bucket `medical-scribe`:
-
-```bash
-docker compose --env-file backend/.env -f docker-compose.s3.yaml up -d
+```text
+Browser frontend
+    ↓ HTTP
+Overtone NestJS API
+    ↓ FFmpeg: WebM/Opus → M4A/AAC
+MinIO (S3 bucket medical-scribe)
+    ↓ sourceAudioKey
+medical-scribe inference: mock или GPU
 ```
 
-Этот compose также создаёт общую сеть `overtone-network`. Mock- и GPU-сервисы подключаются к ней как к external network и используют тот же MinIO по адресу `http://minio:9000`; отдельный MinIO в `compose.local.yml` и `compose.gpu.yml` отключён.
+- `frontend/` — статическое браузерное приложение записи аудио.
+- `backend/` — NestJS API, локальная финализация записи и загрузка M4A в S3.
+- `../medical-scribe/` — соседний репозиторий inference-сервиса.
+- `CLIENT_CONTRACT.md` — контракт браузерной записи, восстановления и HTTP-загрузки.
 
-Основные Compose-файлы находятся в корне монорепозитория. Полный Docker-запуск приложения выполняется оттуда:
+Итоговая запись сохраняется в S3:
+
+```text
+requests/<session-id>/input/<recording-id>.m4a
+```
+
+## Обязательная структура каталогов
+
+Репозитории должны лежать рядом:
+
+```text
+dev/
+├── overtone/
+└── medical-scribe/
+```
+
+Compose-файлы Overtone используют build context `../medical-scribe` для inference.
+
+## Требования
+
+- Docker с `docker compose`.
+- Для GPU-режима: NVIDIA GPU, рабочий NVIDIA Container Runtime и CUDA-драйвер хоста.
+- Для запуска backend без Docker: Node.js 22 и FFmpeg.
+
+Все Docker-команды ниже выполняются из корня `overtone/`.
+
+## Настройка окружения
+
+Создайте конфигурации, если их ещё нет:
+
+```bash
+cp backend/.env.example backend/.env
+cp ../medical-scribe/.env.example ../medical-scribe/.env
+```
+
+Для Docker в `backend/.env` должно быть:
+
+```dotenv
+S3_ENDPOINT=http://minio:9000
+S3_REGION=us-east-1
+S3_BUCKET=medical-scribe
+S3_ACCESS_KEY_ID=minioadmin
+S3_SECRET_ACCESS_KEY=minioadmin
+```
+
+Внутри контейнеров нельзя использовать `localhost` для MinIO: `localhost` указывает на сам контейнер. Используется DNS-имя `minio` в общей сети `overtone-network`.
+
+`../medical-scribe/.env` содержит настройки моделей, LLM и рабочего каталога inference. S3-настройки в корневых inference Compose-файлах переопределяются значениями из `backend/.env`.
+
+## Быстрый запуск: полный mock-стек
+
+Mock не требует GPU и подходит для проверки всей интеграции:
+
+```bash
+docker compose --env-file backend/.env \
+  -f docker-compose.yml \
+  -f docker-compose.s3.yaml \
+  -f docker-compose.inference.mock.yaml \
+  up -d --build
+```
+
+Команда запускает:
+
+- `api` — NestJS, порт `3000`;
+- `frontend` — Nginx, порт `8080`;
+- `minio` — S3 API `9000`, Console `9001`;
+- `minio-init` — создаёт bucket `medical-scribe`;
+- `inference` — mock gRPC, порт `50051`.
+
+## Быстрый запуск: полный GPU-стек
+
+```bash
+docker compose --env-file backend/.env \
+  -f docker-compose.yml \
+  -f docker-compose.s3.yaml \
+  -f docker-compose.inference.gpu.yaml \
+  up -d --build
+```
+
+GPU Compose использует `../medical-scribe/Dockerfile.gpu` и передаёт контейнеру все доступные NVIDIA GPU.
+
+Mock и GPU описывают один сервис `inference` и используют один порт `50051`. Одновременно должен работать только один режим. Запуск другой команды пересоберёт и пересоздаст `inference`.
+
+## Рекомендуемый запуск по этапам
+
+Если нужно видеть, на каком этапе произошла ошибка, запускайте последовательно.
+
+### 1. MinIO и общая сеть
+
+```bash
+docker compose --env-file backend/.env \
+  -f docker-compose.s3.yaml \
+  up -d
+```
+
+Этот Compose создаёт:
+
+- сеть `overtone-network`;
+- MinIO;
+- bucket `medical-scribe`.
+
+### 2. Overtone API и frontend
 
 ```bash
 docker compose --env-file backend/.env up -d --build
 ```
 
-Из корня Overtone также можно запустить inference из соседнего репозитория `../medical-scribe`. Сначала должен работать общий MinIO, затем выберите один режим:
+### 3. Один inference-режим
+
+Mock:
 
 ```bash
-# Mock без GPU
-docker compose --env-file backend/.env -f docker-compose.inference.mock.yaml up -d --build
-
-# Боевой GPU-режим
-docker compose --env-file backend/.env -f docker-compose.inference.gpu.yaml up -d --build
+docker compose --env-file backend/.env \
+  -f docker-compose.inference.mock.yaml \
+  up -d --build
 ```
 
-Оба файла описывают один сервис `inference` и используют порт `50051`, поэтому одновременно запускается только один режим. При переключении Compose пересоздаст этот сервис с нужным Dockerfile и `MEDSCRIBE_EXECUTION_MODE`.
-
-Скопируйте `backend/.env.example` в `backend/.env`. Если backend запускается через `npm run start:dev`, укажите `S3_ENDPOINT=http://localhost:9000`; внутри Docker используется `http://minio:9000`. Для Beget/AWS задайте endpoint, region, bucket и ключи соответствующего S3-хранилища.
+GPU:
 
 ```bash
-cd backend
-npm install
-npm run start:dev
+docker compose --env-file backend/.env \
+  -f docker-compose.inference.gpu.yaml \
+  up -d --build
 ```
 
-Откройте http://localhost:3000 и разрешите браузеру доступ к микрофону. Проверка API: `GET /api/health`.
+## Проверка после запуска
 
-Во время записи секундные `WebM/Opus`-чанки сохраняются в IndexedDB. После остановки клиент отправляет каждый медиасегмент запросом `POST /api/recordings`; сервер объединяет сегменты, перекодирует итог в `M4A/AAC` и загружает его в S3 по ключу `requests/<session-id>/input/<recording-id>.m4a` с `Content-Type: audio/mp4`. Локальный итоговый файл удаляется только после успешной загрузки в S3. При ошибке S3 он остаётся на диске, а браузер сохраняет свою копию для повторной отправки. В Docker локальные файлы защищены именованным volume `recordings_data`. WebSocket в тракте записи не используется.
-
-S3 bucket проверяется при старте backend. Если настройки неверны или bucket недоступен, приложение не начинает принимать записи. Этот же ключ можно передать GPU-сервису как `sourceAudioKey`.
-
-Переменные backend лежат в `backend/.env`; для нового окружения используйте `backend/.env.example`. При `NODE_ENV=development` включены уровни NestJS `debug` и `verbose`; в других окружениях остаются `log`, `warn` и `error`.
-
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
-
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
-
-## Description
-
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
+Показать контейнеры:
 
 ```bash
-$ npm install
+docker compose --env-file backend/.env ps
+docker compose --env-file backend/.env -f docker-compose.s3.yaml ps
+docker compose --env-file backend/.env -f docker-compose.inference.mock.yaml ps
 ```
 
-## Compile and run the project
+Проверить API напрямую и через frontend proxy:
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+curl http://localhost:3000/api/health
+curl http://localhost:8080/api/health
 ```
 
-## Run tests
+Ожидается:
+
+```json
+{"status":"ok"}
+```
+
+Интерфейсы:
+
+- Overtone: http://localhost:8080
+- MinIO Console: http://localhost:9001
+- NestJS API: http://localhost:3000
+- inference gRPC: `localhost:50051`
+
+Для inference вызовите `GetHealth` через Postman/gRPC. Mock должен вернуть `READY`; GPU станет `READY` после загрузки моделей и проверки S3.
+
+## Логи
 
 ```bash
-# unit tests
-$ npm run test
+# Overtone
+docker compose --env-file backend/.env logs -f api frontend
 
-# e2e tests
-$ npm run test:e2e
+# MinIO
+docker compose --env-file backend/.env \
+  -f docker-compose.s3.yaml \
+  logs -f minio minio-init
 
-# test coverage
-$ npm run test:cov
+# Mock inference
+docker compose --env-file backend/.env \
+  -f docker-compose.inference.mock.yaml \
+  logs -f inference
+
+# GPU inference
+docker compose --env-file backend/.env \
+  -f docker-compose.inference.gpu.yaml \
+  logs -f inference
 ```
 
-## Deployment
+## Остановка
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Остановить отдельные части без удаления данных:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+docker compose --env-file backend/.env \
+  -f docker-compose.inference.mock.yaml down
+
+docker compose --env-file backend/.env down
+
+docker compose --env-file backend/.env \
+  -f docker-compose.s3.yaml down
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Для GPU вместо mock-файла укажите `docker-compose.inference.gpu.yaml`.
 
-## Resources
+Не добавляйте `-v`, если не хотите удалить записи, MinIO bucket и остальные Docker volumes.
 
-Check out a few resources that may come in handy when working with NestJS:
+## Старые контейнеры medical-scribe
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+До переноса управления в Overtone inference и MinIO могли запускаться из `../medical-scribe`. Их нужно остановить один раз, иначе будут заняты порты `50051`, `9000` и `9001`:
 
-## Support
+```bash
+cd ../medical-scribe
+docker compose -f compose.local.yml down --remove-orphans
+docker compose -f compose.gpu.yml down --remove-orphans
+cd ../overtone
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+После этого mock/GPU запускаются только из Overtone. В `medical-scribe/compose.local.yml` и `compose.gpu.yml` собственный MinIO закомментирован.
 
-## Stay in touch
+## Дополнительная инфраструктура
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+MongoDB и Redis сейчас не нужны для цепочки `запись → M4A → S3`, но их Compose-файлы сохранены:
 
-## License
+```bash
+docker compose --env-file backend/.env \
+  -f docker-compose.mongo.yaml up -d
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+docker compose --env-file backend/.env \
+  -f docker-compose.redis.yaml up -d
+```
+
+Перед запуском добавьте в `backend/.env` необходимые `MONGO_*` и `REDIS_PASSWORD`.
+
+## Типовые ошибки
+
+### `network overtone-network declared as external, but could not be found`
+
+Сначала запустите `docker-compose.s3.yaml`: именно он создаёт общую сеть.
+
+### `port is already allocated`
+
+- `50051` — уже работает другой mock/GPU inference;
+- `9000` или `9001` — уже работает другой MinIO;
+- `3000` или `8080` — уже запущен Overtone вне текущего Compose.
+
+Проверка:
+
+```bash
+docker ps --format 'table {{.Names}}\t{{.Ports}}'
+```
+
+### `Configured S3 bucket is unavailable`
+
+Проверьте:
+
+- MinIO имеет статус `healthy`;
+- bucket `medical-scribe` создан;
+- endpoint внутри контейнеров равен `http://minio:9000`;
+- credentials в Overtone и inference совпадают.
+
+### `Cannot connect to the Docker daemon`
+
+Запустите Docker Desktop/daemon и повторите команду.
+
+### GPU inference не становится `READY`
+
+Сначала проверьте доступ GPU:
+
+```bash
+docker run --rm --gpus all nvidia/cuda:12.8.1-base-ubuntu24.04 nvidia-smi
+```
+
+Затем проверьте пути моделей и переменные в `../medical-scribe/.env`.
+
+## Важные правила для AI-агента
+
+1. Выполнять Compose-команды из корня Overtone.
+2. Не поднимать второй MinIO из `medical-scribe`.
+3. Не заменять `http://minio:9000` на `localhost` внутри контейнеров.
+4. Не запускать mock и GPU одновременно: оба занимают `50051`.
+5. Не использовать `docker compose down -v` без явного разрешения владельца данных.
+6. Перед удалением конфликтующего контейнера проверить его Compose project и подключённый volume через `docker inspect`.
