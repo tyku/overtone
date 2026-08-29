@@ -1,16 +1,26 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
+import { RecordingRemuxService } from './recording-remux.service';
 import { RecordingStorageService } from './recording-storage.service';
 
 describe('RecordingStorageService', () => {
   let temporaryDirectory: string;
   let service: RecordingStorageService;
+  let remuxer: Pick<RecordingRemuxService, 'remux'>;
 
   beforeEach(async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), 'overtone-recordings-'));
-    service = new RecordingStorageService();
+    remuxer = {
+      remux: jest.fn(async (inputPaths: string[], outputPath: string) => {
+        const contents = await Promise.all(
+          inputPaths.map((path) => readFile(path)),
+        );
+        await writeFile(outputPath, Buffer.concat(contents));
+      }),
+    };
+    service = new RecordingStorageService(remuxer as RecordingRemuxService);
     Object.defineProperty(service, 'recordingsDir', {
       value: temporaryDirectory,
     });
@@ -43,11 +53,48 @@ describe('RecordingStorageService', () => {
       bytes: 5,
       fileName: 'session-1/recording-1.segment-0001.webm',
       alreadyExisted: false,
+      finalFileName: 'session-1/recording-1.webm',
+      finalBytes: 5,
     });
-    expect(retry).toMatchObject({ bytes: 5, alreadyExisted: true });
+    expect(retry).toMatchObject({
+      bytes: 5,
+      finalFileName: 'session-1/recording-1.webm',
+      finalBytes: 5,
+    });
     await expect(
-      readFile(join(temporaryDirectory, first.fileName), 'utf8'),
+      readFile(join(temporaryDirectory, first.finalFileName!), 'utf8'),
     ).resolves.toBe('audio');
+  });
+
+  it('remuxes multiple segments into one final recording', async () => {
+    const metadata = {
+      sessionId: 'session-2',
+      recordingId: 'recording-2',
+      segmentNo: 1,
+      mimeType: 'audio/webm;codecs=opus',
+      recordingComplete: false,
+    };
+
+    await service.save(Readable.from(Buffer.from('first-')), metadata);
+    const completed = await service.save(Readable.from(Buffer.from('second')), {
+      ...metadata,
+      segmentNo: 2,
+      recordingComplete: true,
+    });
+
+    expect(remuxer.remux).toHaveBeenCalledTimes(1);
+    expect(completed).toMatchObject({
+      finalFileName: 'session-2/recording-2.webm',
+      finalBytes: 12,
+    });
+    await expect(
+      readFile(join(temporaryDirectory, completed.finalFileName!), 'utf8'),
+    ).resolves.toBe('first-second');
+    await expect(
+      readFile(
+        join(temporaryDirectory, 'session-2/recording-2.segment-0001.webm'),
+      ),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('rejects unsupported audio types', () => {

@@ -37,6 +37,8 @@ FROM node:22-alpine AS backend
 WORKDIR /app
 ENV NODE_ENV=production
 
+RUN apk add --no-cache ffmpeg
+
 COPY --from=backend-build /app/dist ./dist
 COPY --from=backend-build /app/node_modules ./node_modules
 COPY --from=backend-build /app/package.json ./package.json

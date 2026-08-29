@@ -98,14 +98,16 @@ export class RecordingClient {
         saved.push(await response.json());
       }
 
+      const finalized = saved.findLast(({ finalFileName }) => finalFileName);
+      if (!finalized) throw new Error('Сервер не вернул итоговый файл');
       await this.store.markStatus(recordingId, 'uploaded');
       await this.store.deleteRecording(recordingId);
       this.state = 'idle';
       this.onCompleted({
         recordingId,
         segments: saved.length,
-        bytes: saved.reduce((total, item) => total + item.bytes, 0),
-        fileNames: saved.map(({ fileName }) => fileName),
+        bytes: finalized.finalBytes,
+        fileNames: [finalized.finalFileName],
       });
     } catch (error) {
       await this.store.markStatus(recordingId, 'failed').catch(() => undefined);

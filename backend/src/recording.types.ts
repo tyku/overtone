@@ -13,4 +13,12 @@ export type RecordingSaved = {
   bytes: number;
   fileName: string;
   alreadyExisted: boolean;
+  finalFileName?: string;
+  finalBytes?: number;
+};
+
+export type RecordingFinalized = {
+  fileName: string;
+  bytes: number;
+  alreadyExisted: boolean;
 };

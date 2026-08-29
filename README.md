@@ -9,6 +9,8 @@
 
 ## Запуск
 
+Backend использует FFmpeg для объединения медиасегментов без перекодирования. В macOS установите его командой `brew install ffmpeg`; в Docker-образ он устанавливается автоматически.
+
 ```bash
 cd backend
 npm install
@@ -17,7 +19,7 @@ npm run start:dev
 
 Откройте http://localhost:3000 и разрешите браузеру доступ к микрофону. Проверка API: `GET /api/health`.
 
-Во время записи секундные `WebM/Opus`-чанки сохраняются в IndexedDB. После остановки клиент отправляет каждый медиасегмент запросом `POST /api/recordings`; сервер сохраняет его в `backend/recordings/<session-id>/`. WebSocket в тракте записи не используется.
+Во время записи секундные `WebM/Opus`-чанки сохраняются в IndexedDB. После остановки клиент отправляет каждый медиасегмент запросом `POST /api/recordings`; сервер выполняет concat/remux и сохраняет единый файл в `backend/recordings/<session-id>/<recording-id>.webm`. Исходные сегменты удаляются только после успешной финализации. WebSocket в тракте записи не используется.
 
 Переменные backend лежат в `backend/.env`; для нового окружения используйте `backend/.env.example`. При `NODE_ENV=development` включены уровни NestJS `debug` и `verbose`; в других окружениях остаются `log`, `warn` и `error`.
 
