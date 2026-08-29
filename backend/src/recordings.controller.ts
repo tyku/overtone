@@ -8,13 +8,13 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { RecordingStorageService } from './recording-storage.service';
+import { RecordingUploadService } from './recording-upload.service';
 
 @Controller('api/recordings')
 export class RecordingsController {
   private readonly logger = new Logger(RecordingsController.name);
 
-  constructor(private readonly recordings: RecordingStorageService) {}
+  constructor(private readonly recordings: RecordingUploadService) {}
 
   @Post()
   @HttpCode(201)

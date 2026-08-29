@@ -6,19 +6,30 @@ export type RecordingUploadMetadata = {
   recordingComplete: boolean;
 };
 
-export type RecordingSaved = {
+export type RecordingSegmentSaved = {
   sessionId: string;
   recordingId: string;
   segmentNo: number;
   bytes: number;
   fileName: string;
   alreadyExisted: boolean;
+};
+
+export type RecordingSaved = RecordingSegmentSaved & {
   finalFileName?: string;
   finalBytes?: number;
+  s3Bucket?: string;
+  s3ObjectKey?: string;
 };
 
 export type RecordingFinalized = {
   fileName: string;
+  localPath: string;
+  extension: string;
   bytes: number;
   alreadyExisted: boolean;
+};
+
+export type RecordingLocallySaved = RecordingSegmentSaved & {
+  finalized?: RecordingFinalized;
 };

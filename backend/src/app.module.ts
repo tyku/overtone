@@ -2,13 +2,14 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { RecordingStorageService } from './recording-storage.service';
-import { RecordingRemuxService } from './recording-remux.service';
-import { RecordingsController } from './recordings.controller';
+import { RecordingsModule } from './recordings.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' })],
-  controllers: [AppController, RecordingsController],
-  providers: [AppService, RecordingRemuxService, RecordingStorageService],
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
+    RecordingsModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}

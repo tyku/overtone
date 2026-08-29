@@ -1,0 +1,49 @@
+# Local S3-compatible storage for development.
+# Запуск: docker compose -f docker-compose.s3.yaml up -d
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: overtone-minio
+    command: server /data --console-address ':9001'
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+    ports:
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - overtone-network
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-medical-scribe}
+    entrypoint: >-
+      /bin/sh -c '
+      mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}";
+      mc mb --ignore-existing "local/$${S3_BUCKET}";
+      '
+    restart: 'no'
+    networks:
+      - overtone-network
+
+volumes:
+  minio_data:
+
+networks:
+  overtone-network:
+    name: overtone-network

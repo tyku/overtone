@@ -53,17 +53,22 @@ describe('RecordingStorageService', () => {
       bytes: 5,
       fileName: 'session-1/recording-1.segment-0001.webm',
       alreadyExisted: false,
-      finalFileName: 'session-1/recording-1.webm',
-      finalBytes: 5,
+      finalized: {
+        fileName: 'session-1/recording-1.webm',
+        bytes: 5,
+        extension: 'webm',
+      },
     });
     expect(retry).toMatchObject({
       bytes: 5,
-      finalFileName: 'session-1/recording-1.webm',
-      finalBytes: 5,
+      finalized: {
+        fileName: 'session-1/recording-1.webm',
+        bytes: 5,
+      },
     });
-    await expect(
-      readFile(join(temporaryDirectory, first.finalFileName!), 'utf8'),
-    ).resolves.toBe('audio');
+    await expect(readFile(first.finalized!.localPath, 'utf8')).resolves.toBe(
+      'audio',
+    );
   });
 
   it('remuxes multiple segments into one final recording', async () => {
@@ -84,11 +89,13 @@ describe('RecordingStorageService', () => {
 
     expect(remuxer.remux).toHaveBeenCalledTimes(1);
     expect(completed).toMatchObject({
-      finalFileName: 'session-2/recording-2.webm',
-      finalBytes: 12,
+      finalized: {
+        fileName: 'session-2/recording-2.webm',
+        bytes: 12,
+      },
     });
     await expect(
-      readFile(join(temporaryDirectory, completed.finalFileName!), 'utf8'),
+      readFile(completed.finalized!.localPath, 'utf8'),
     ).resolves.toBe('first-second');
     await expect(
       readFile(

@@ -2,6 +2,7 @@
 # Инфра отдельно:
 #   docker compose -f docker-compose.mongo.yaml up -d
 #   docker compose -f docker-compose.redis.yaml up -d
+#   docker compose -f docker-compose.s3.yaml up -d
 #   docker compose up -d
 #
 # Сеть: overtone-network (общая с mongo/redis).
@@ -16,6 +17,8 @@ services:
     env_file: .env
     ports:
       - '3000:3000'
+    volumes:
+      - recordings_data:/app/recordings
     mem_limit: 384m
     cpus: 0.4
     healthcheck:
@@ -47,3 +50,6 @@ services:
 networks:
   overtone-network:
     name: overtone-network
+
+volumes:
+  recordings_data:

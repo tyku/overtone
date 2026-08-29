@@ -12,7 +12,7 @@ import type { Readable } from 'node:stream';
 import { RecordingRemuxService } from './recording-remux.service';
 import {
   RecordingFinalized,
-  RecordingSaved,
+  RecordingLocallySaved,
   RecordingUploadMetadata,
 } from './recording.types';
 
@@ -36,7 +36,7 @@ export class RecordingStorageService implements OnModuleInit {
   async save(
     source: Readable,
     metadata: RecordingUploadMetadata,
-  ): Promise<RecordingSaved> {
+  ): Promise<RecordingLocallySaved> {
     const extension = this.extensionFor(metadata.mimeType);
     const sessionDir = join(this.recordingsDir, metadata.sessionId);
     const fileName = `${metadata.recordingId}.segment-${String(metadata.segmentNo).padStart(4, '0')}.${extension}`;
@@ -72,7 +72,7 @@ export class RecordingStorageService implements OnModuleInit {
       this.logger.log(
         `Recording segment saved: session=${metadata.sessionId} recording=${metadata.recordingId} segment=${metadata.segmentNo} bytes=${saved.size} complete=${metadata.recordingComplete} existing=${alreadyExisted}`,
       );
-      const result: RecordingSaved = {
+      const result: RecordingLocallySaved = {
         sessionId: metadata.sessionId,
         recordingId: metadata.recordingId,
         segmentNo: metadata.segmentNo,
@@ -81,9 +81,7 @@ export class RecordingStorageService implements OnModuleInit {
         alreadyExisted,
       };
       if (metadata.recordingComplete) {
-        const finalized = await this.finalize(metadata, extension);
-        result.finalFileName = finalized.fileName;
-        result.finalBytes = finalized.bytes;
+        result.finalized = await this.finalize(metadata, extension);
       }
       return result;
     } catch (error) {
@@ -141,6 +139,8 @@ export class RecordingStorageService implements OnModuleInit {
       await this.deleteSegments(metadata, extension);
       return {
         fileName: relative(this.recordingsDir, finalPath),
+        localPath: finalPath,
+        extension,
         bytes: existing.size,
         alreadyExisted: true,
       };
@@ -195,6 +195,8 @@ export class RecordingStorageService implements OnModuleInit {
     );
     return {
       fileName: relative(this.recordingsDir, finalPath),
+      localPath: finalPath,
+      extension,
       bytes: finalized.size,
       alreadyExisted,
     };
