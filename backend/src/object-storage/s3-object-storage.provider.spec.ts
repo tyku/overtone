@@ -1,5 +1,6 @@
 import {
   HeadBucketCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -68,5 +69,50 @@ describe('S3ObjectStorageProvider', () => {
       }),
     ).rejects.toThrow('safe relative key');
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('distinguishes missing objects from storage outages', async () => {
+    const send = jest
+      .fn()
+      .mockRejectedValueOnce({ $metadata: { httpStatusCode: 404 } })
+      .mockRejectedValueOnce({ $metadata: { httpStatusCode: 503 } });
+    const provider = new S3ObjectStorageProvider(config, {
+      send,
+    } as unknown as S3Client);
+    await expect(
+      provider.headObject('requests/a/input/audio.m4a'),
+    ).resolves.toBeUndefined();
+    await expect(
+      provider.headObject('requests/a/input/audio.m4a'),
+    ).rejects.toMatchObject({ $metadata: { httpStatusCode: 503 } });
+    expect(send.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
+  });
+
+  it('publishes immutable audio with a checksum and tolerates an existing object', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'overtone-immutable-'));
+    const sourcePath = join(directory, 'audio');
+    await writeFile(sourcePath, 'audio');
+    const send = jest
+      .fn()
+      .mockRejectedValue({ $metadata: { httpStatusCode: 412 } });
+    const provider = new S3ObjectStorageProvider(config, {
+      send,
+    } as unknown as S3Client);
+    try {
+      await provider.uploadImmutable({
+        sourcePath,
+        objectKey: 'requests/a/input/audio.m4a',
+        contentType: 'audio/mp4',
+        metadata: { 'output-sha256': 'ab'.repeat(32) },
+      });
+      const command = send.mock.calls[0][0] as PutObjectCommand;
+      expect(command.input.IfNoneMatch).toBe('*');
+      expect(command.input.ChecksumSHA256).toBe(
+        Buffer.from('ab'.repeat(32), 'hex').toString('base64'),
+      );
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
