@@ -14,6 +14,7 @@ function logLevelsForEnvironment(nodeEnv: string): LogLevel[] {
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.enableShutdownHooks();
   const config = app.get(ConfigService);
   const nodeEnv = config.get<string>('NODE_ENV', 'development');
   const logLevels = logLevelsForEnvironment(nodeEnv);
@@ -44,12 +45,15 @@ async function bootstrap() {
   });
   app.useStaticAssets(frontendDir);
   const port = Number(config.get<string>('PORT', '3000'));
+  // Technical upload timeout; deliberately unrelated to the report's 30s SLO.
+  const uploadTimeoutMs = Number(config.get('HTTP_UPLOAD_TIMEOUT_MS', 2100000));
+  if (!Number.isSafeInteger(uploadTimeoutMs) || uploadTimeoutMs < 1)
+    throw new Error('Invalid HTTP_UPLOAD_TIMEOUT_MS');
+  app.getHttpServer().requestTimeout = uploadTimeoutMs;
   await app.listen(port);
   logger.log(`Server started: http://localhost:${port}`);
   logger.log(`Static frontend directory: ${frontendDir}`);
-  logger.log(
-    `Recording upload endpoint: http://localhost:${port}/api/recordings`,
-  );
+  logger.log(`Requests API: http://localhost:${port}/api/requests`);
 }
 bootstrap().catch((error: unknown) => {
   const logger = new Logger('Bootstrap');

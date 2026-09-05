@@ -4,6 +4,9 @@
 /backend/node_modules
 /build
 /backend/dist
+/backend/test-results
+/backend/playwright-report
+/backend/coverage
 /backend/recordings
 
 # Logs

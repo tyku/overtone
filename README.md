@@ -1,294 +1,162 @@
 # Overtone
 
-Runbook для разработчика или AI-агента, которому нужно локально поднять весь контур записи и обработки аудио.
+Сервис приёмов: браузерная запись → HTTP multipart → FFmpeg → S3 → закрытие в PostgreSQL.
 
-## Что входит в контур
+## Что реализовано
 
-```text
-Browser frontend
-    ↓ HTTP
-Overtone NestJS API
-    ↓ FFmpeg: WebM/Opus → M4A/AAC
-MinIO (S3 bucket medical-scribe)
-    ↓ sourceAudioKey
-medical-scribe inference: mock или GPU
-```
+- Страница приёмов: дата, статус, открытие, новые сверху, cursor-пагинация.
+- Один технический пользователь; у него не более одного незакрытого приёма.
+- Серверный `requestId`, одна запись на приём. Стоп позволяет продолжить; «Завершить приём» навсегда фиксирует аудио, включая после ошибки/перезагрузки.
+- Один multipart-запрос с частями и проверяемым манифестом. Части временно сохраняются на диске, итоговое аудио — в S3.
+- Идемпотентное закрытие, повторы с/без файлов, восстановление результата S3 после ошибки PostgreSQL.
+- Принудительное закрытие, история событий, отображение и скачивание Markdown-отчёта, безопасный рендеринг HTML.
+- Закрытие и намерение обработки фиксируются одной транзакцией PostgreSQL.
 
-- `frontend/` — статическое браузерное приложение записи аудио.
-- `backend/` — NestJS API, локальная финализация записи и загрузка M4A в S3.
-- `../medical-scribe/` — соседний репозиторий inference-сервиса.
-- `CLIENT_CONTRACT.md` — контракт браузерной записи, восстановления и HTTP-загрузки.
+**Фоновый исполнитель ещё не подключён.** Таблица `processing_intents` сохраняет долговечное намерение обработки, но её пока никто не выполняет. Приём после успешного сохранения остаётся в статусе «Отчёт в обработке». Запуск `RunFullPipeline`, retry вычислений и запись готового результата будут реализованы отдельным согласуемым блоком. Mock-отчёты в продукт не подставляются. SLO 30 секунд пока не измерен.
 
-Итоговая запись сохраняется в S3:
+Авторизация и админка отложены. Все браузеры сейчас используют одного технического пользователя, определённого backend.
 
-```text
-requests/<session-id>/input/<recording-id>.m4a
-```
+## Локальный запуск Docker
 
-## Обязательная структура каталогов
+Нужны Docker Compose; для запуска inference рядом должен лежать `../medical-scribe/`. Для GPU также нужен NVIDIA Container Runtime.
 
-Репозитории должны лежать рядом:
-
-```text
-dev/
-├── overtone/
-└── medical-scribe/
-```
-
-Compose-файлы Overtone используют build context `../medical-scribe` для inference.
-
-## Требования
-
-- Docker с `docker compose`.
-- Для GPU-режима: NVIDIA GPU, рабочий NVIDIA Container Runtime и CUDA-драйвер хоста.
-- Для запуска backend без Docker: Node.js 22 и FFmpeg.
-
-Все Docker-команды ниже выполняются из корня `overtone/`.
-
-## Настройка окружения
-
-Создайте конфигурации, если их ещё нет:
-
-```bash
+```sh
 cp backend/.env.example backend/.env
-cp ../medical-scribe/.env.example ../medical-scribe/.env
 ```
 
-Для Docker в `backend/.env` должно быть:
+Если `.env` уже существует, добавьте новые переменные из `.env.example`, не затирая текущие credentials. Для Docker:
 
 ```dotenv
+DATABASE_URL=postgresql://overtone:overtone_local@postgres:5432/overtone
+POSTGRES_USER=overtone
+POSTGRES_PASSWORD=overtone_local
+POSTGRES_DB=overtone
 S3_ENDPOINT=http://minio:9000
-S3_REGION=us-east-1
-S3_BUCKET=medical-scribe
-S3_ACCESS_KEY_ID=minioadmin
-S3_SECRET_ACCESS_KEY=minioadmin
 ```
 
-Внутри контейнеров нельзя использовать `localhost` для MinIO: `localhost` указывает на сам контейнер. Используется DNS-имя `minio` в общей сети `overtone-network`.
+При изменении пользователя/пароля PostgreSQL обновите и `DATABASE_URL`. Пароль внутри URL должен быть URL-encoded.
 
-`../medical-scribe/.env` содержит настройки моделей, LLM и рабочего каталога inference. S3-настройки в корневых inference Compose-файлах переопределяются значениями из `backend/.env`.
+Из корня Overtone:
 
-## Быстрый запуск: полный mock-стек
-
-Mock не требует GPU и подходит для проверки всей интеграции:
-
-```bash
+```sh
 docker compose --env-file backend/.env \
   -f docker-compose.yml \
+  -f docker-compose.postgres.yaml \
   -f docker-compose.s3.yaml \
-  -f docker-compose.inference.mock.yaml \
   up -d --build
 ```
 
-Команда запускает:
+- Frontend: http://localhost:8080
+- API/health: http://localhost:3000/api/health
+- MinIO: http://localhost:9001
+- PostgreSQL: localhost:5432
 
-- `api` — NestJS, порт `3000`;
-- `frontend` — Nginx, порт `8080`;
-- `minio` — S3 API `9000`, Console `9001`;
-- `minio-init` — создаёт bucket `medical-scribe`;
-- `inference` — mock gRPC, порт `50051`.
+Backend выполняет версионированные SQL-миграции при запуске под блокировкой PostgreSQL. Если PostgreSQL ещё стартует, restart policy перезапустит API. При недоступном S3 API остаётся доступным для истории/принудительного закрытия; сохранение вернёт явную ошибку.
 
-## Быстрый запуск: полный GPU-стек
+MongoDB и Redis для этого блока не нужны. Старые Compose-файлы и их volumes сохранены; новая БД получает отдельный `postgres_data` volume.
 
-```bash
-docker compose --env-file backend/.env \
-  -f docker-compose.yml \
-  -f docker-compose.s3.yaml \
-  -f docker-compose.inference.gpu.yaml \
-  up -d --build
+## Запуск backend на хосте
+
+Нужны Node.js 22+ и FFmpeg. PostgreSQL и MinIO должны быть запущены. В `backend/.env` используйте `localhost` для обоих endpoints:
+
+```dotenv
+DATABASE_URL=postgresql://overtone:overtone_local@localhost:5432/overtone
+S3_ENDPOINT=http://localhost:9000
 ```
 
-GPU Compose использует `../medical-scribe/Dockerfile.gpu` и передаёт контейнеру все доступные NVIDIA GPU.
-
-Mock и GPU описывают один сервис `inference` и используют один порт `50051`. Одновременно должен работать только один режим. Запуск другой команды пересоберёт и пересоздаст `inference`.
-
-## Рекомендуемый запуск по этапам
-
-Если нужно видеть, на каком этапе произошла ошибка, запускайте последовательно.
-
-### 1. MinIO и общая сеть
-
-```bash
-docker compose --env-file backend/.env \
-  -f docker-compose.s3.yaml \
-  up -d
+```sh
+cd backend
+npm ci
+npm run start:dev
 ```
 
-Этот Compose создаёт:
+Backend также раздаёт frontend из соседней папки, поэтому достаточно http://localhost:3000.
 
-- сеть `overtone-network`;
-- MinIO;
-- bucket `medical-scribe`.
+## HTTP-контракт
 
-### 2. Overtone API и frontend
+| Метод | Путь | Назначение |
+|---|---|---|
+| POST | `/api/requests` | Создать приём; `201` или `409 ACTIVE_REQUEST_EXISTS` с существующим ID |
+| GET | `/api/requests?limit=20&cursor=...` | История всех приёмов |
+| GET | `/api/requests/{id}` | Состояние и `audioStored: true/false/null` |
+| POST | `/api/requests/{id}/complete` | Multipart с аудио либо JSON `{}` для повтора без файлов |
+| POST | `/api/requests/{id}/abandon` | JSON `{}` или `{ "reason": "..." }` |
+| GET | `/api/requests/{id}/report` | Готовый Markdown-документ в JSON-обёртке |
 
-```bash
-docker compose --env-file backend/.env up -d --build
-```
-
-### 3. Один inference-режим
-
-Mock:
-
-```bash
-docker compose --env-file backend/.env \
-  -f docker-compose.inference.mock.yaml \
-  up -d --build
-```
-
-GPU:
-
-```bash
-docker compose --env-file backend/.env \
-  -f docker-compose.inference.gpu.yaml \
-  up -d --build
-```
-
-## Проверка после запуска
-
-Показать контейнеры:
-
-```bash
-docker compose --env-file backend/.env ps
-docker compose --env-file backend/.env -f docker-compose.s3.yaml ps
-docker compose --env-file backend/.env -f docker-compose.inference.mock.yaml ps
-```
-
-Проверить API напрямую и через frontend proxy:
-
-```bash
-curl http://localhost:3000/api/health
-curl http://localhost:8080/api/health
-```
-
-Ожидается:
+Multipart содержит файлы `part_1`, `part_2`, … и строковое JSON-поле `manifest`:
 
 ```json
-{"status":"ok"}
+{"parts":[{"partNo":1,"field":"part_1","mimeType":"audio/webm;codecs=opus","bytes":12345,"sha256":"64 lowercase hex characters"}]}
 ```
 
-Интерфейсы:
+Порядок массива — порядок склейки; номера начинаются с 1 без пропусков. Backend проверяет фактические размер и SHA-256 каждого файла. Другой вход под тем же `requestId` получает `409 AUDIO_CONTENT_CONFLICT`.
 
-- Overtone: http://localhost:8080
-- MinIO Console: http://localhost:9001
-- NestJS API: http://localhost:3000
-- inference gRPC: `localhost:50051`
+`/complete`: `200` означает S3 + закрытие в PostgreSQL, `202` означает, что другая операция над приёмом ещё идёт. После `202` клиент продолжает ожидать и сверяет состояние, не считает приём закрытым.
 
-Для inference вызовите `GetHealth` через Postman/gRPC. Mock должен вернуть `READY`; GPU станет `READY` после загрузки моделей и проверки S3.
+Форма ошибки:
 
-## Логи
-
-```bash
-# Overtone
-docker compose --env-file backend/.env logs -f api frontend
-
-# MinIO
-docker compose --env-file backend/.env \
-  -f docker-compose.s3.yaml \
-  logs -f minio minio-init
-
-# Mock inference
-docker compose --env-file backend/.env \
-  -f docker-compose.inference.mock.yaml \
-  logs -f inference
-
-# GPU inference
-docker compose --env-file backend/.env \
-  -f docker-compose.inference.gpu.yaml \
-  logs -f inference
+```json
+{"requestId":"...","error":{"code":"REQUEST_FINALIZATION_FAILED","message":"...","retryAction":"complete_without_audio"}}
 ```
 
-## Остановка
+- `AUDIO_UPLOAD_REQUIRED` → `upload_audio`: повтор с файлами.
+- `REQUEST_FINALIZATION_FAILED` → `complete_without_audio`: S3 подтверждён, повтор без файлов.
+- `REQUEST_STATE_UNKNOWN` → `check_status`: исход неизвестен; GET состояния, при недоступности повтор проверки.
+- `AUDIO_SAVE_FAILED` → `complete_without_audio`: сервер сохранил staging, можно повторить без файлов; если staging недоступен, следующий ответ потребует upload.
+- `AUDIO_CONTENT_CONFLICT`, `AUDIO_INTEGRITY_FAILED`, `AUDIO_DECODE_FAILED` → без автоматического retry.
 
-Остановить отдельные части без удаления данных:
+Потерянный HTTP-ответ тоже требует проверки состояния. `audioStored: null` означает невозможность достоверной проверки S3. Это не доказательство отсутствия аудио.
 
-```bash
-docker compose --env-file backend/.env \
-  -f docker-compose.inference.mock.yaml down
+## Хранение и гарантии этого блока
 
-docker compose --env-file backend/.env down
+Аудио S3: `requests/{requestId}/input/audio.m4a`. Запись выполняется условным PUT `If-None-Match: *`; существующий объект не перезаписывается. Метаданные содержат ID, fingerprint исходного манифеста и SHA-256 итогового аудио; S3 проверяет checksum при загрузке. Для восстановления backend сверяет объект с зафиксированным входом.
 
-docker compose --env-file backend/.env \
-  -f docker-compose.s3.yaml down
+В PostgreSQL: `requests`, `request_events`, `processing_intents`, `schema_migrations`. Уникальный partial index запрещает второй открытый приём. Session advisory lock сериализует закрытие/abandon без длинной транзакции во время FFmpeg/S3. При потере соединения блокировка освобождается; запись S3 остаётся неизменяемой, транзакция закрытия не может выполниться на потерянном соединении.
+
+После успешного закрытия временные серверные файлы удаляются. Неудачный staging сохраняется для повторов; автоматическая уборка таких серверных файлов пока не реализована. Это требует контроля диска до следующего блока.
+
+Браузер хранит аудио в IndexedDB. Подтверждение S3 позволяет удалить аудиочанки, сохранив метаданные/ссылку на отчёт. После force-close без S3 — 3 часа хранения; очистка при открытии и раз в минуту. Активные записи по этому TTL не удаляются. Старые IndexedDB-записи сохраняются и доступны для скачивания в разделе предыдущей версии.
+
+## Технические ограничения
+
+Длительность приёма не ограничена продуктовым правилом. Начальные технические настройки:
+
+- `MAX_UPLOAD_BYTES=1073741824` — 1 GiB суммарного аудио;
+- `MAX_AUDIO_PARTS=1000`;
+- `FFMPEG_TIMEOUT_MS=1800000` — 30 минут на сборку;
+- `HTTP_UPLOAD_TIMEOUT_MS=2100000` — 35 минут на HTTP upload;
+- Nginx: 1025 MiB с запасом на multipart, ожидание upstream 35 минут.
+
+При изменении размера/таймаута синхронизируйте backend, Nginx и timeout multipart в `frontend/request-api.js`. Это технические пределы, а не 30-секундный SLO отчёта. Проверены Chromium и WebM/Opus; Safari/мобильные браузеры и часовые записи ещё требуют проверки. Используются IndexedDB, Web Locks и Web Crypto; доступ к микрофону требует HTTPS, кроме localhost.
+
+## Проверки
+
+```sh
+cd backend
+npm run build
+npm test -- --runInBand
+npm run test:frontend
 ```
 
-Для GPU вместо mock-файла укажите `docker-compose.inference.gpu.yaml`.
+Интеграционные тесты используют **отдельную тестовую БД**: они очищают таблицы приёмов.
 
-Не добавляйте `-v`, если не хотите удалить записи, MinIO bucket и остальные Docker volumes.
-
-## Старые контейнеры medical-scribe
-
-До переноса управления в Overtone inference и MinIO могли запускаться из `../medical-scribe`. Их нужно остановить один раз, иначе будут заняты порты `50051`, `9000` и `9001`:
-
-```bash
-cd ../medical-scribe
-docker compose -f compose.local.yml down --remove-orphans
-docker compose -f compose.gpu.yml down --remove-orphans
-cd ../overtone
+```sh
+TEST_DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/overtone_test npm run test:integration
+TEST_FFMPEG=ffmpeg TEST_FFPROBE=ffprobe npm test -- --runInBand
+npx playwright install chromium
+npm run test:browser
 ```
 
-После этого mock/GPU запускаются только из Overtone. В `medical-scribe/compose.local.yml` и `compose.gpu.yml` собственный MinIO закомментирован.
+Без `TEST_DATABASE_URL` SQL-интеграционные тесты пропускаются. Они проверяют реальную PostgreSQL с тестовым S3-адаптером; браузерные проверки используют настоящий MediaRecorder и тестовые HTTP-ответы. Отдельный тест проверяет настоящий FFmpeg. Полный Docker/MinIO/GPU smoke нужен перед развёртыванием.
 
-## Дополнительная инфраструктура
+Frontend-библиотеки Markdown/очистки HTML закреплены в backend lockfile и поставляются локально с лицензиями. После обновления зависимостей: `npm run vendor:frontend`.
 
-MongoDB и Redis сейчас не нужны для цепочки `запись → M4A → S3`, но их Compose-файлы сохранены:
+## Inference и правила эксплуатации
 
-```bash
-docker compose --env-file backend/.env \
-  -f docker-compose.mongo.yaml up -d
+`docker-compose.inference.mock.yaml` и `docker-compose.inference.gpu.yaml` по-прежнему собирают сервис из `../medical-scribe`. Их подключение не запускает обработку автоматически, пока нет worker-а Overtone.
 
-docker compose --env-file backend/.env \
-  -f docker-compose.redis.yaml up -d
-```
-
-Перед запуском добавьте в `backend/.env` необходимые `MONGO_*` и `REDIS_PASSWORD`.
-
-## Типовые ошибки
-
-### `network overtone-network declared as external, but could not be found`
-
-Сначала запустите `docker-compose.s3.yaml`: именно он создаёт общую сеть.
-
-### `port is already allocated`
-
-- `50051` — уже работает другой mock/GPU inference;
-- `9000` или `9001` — уже работает другой MinIO;
-- `3000` или `8080` — уже запущен Overtone вне текущего Compose.
-
-Проверка:
-
-```bash
-docker ps --format 'table {{.Names}}\t{{.Ports}}'
-```
-
-### `Configured S3 bucket is unavailable`
-
-Проверьте:
-
-- MinIO имеет статус `healthy`;
-- bucket `medical-scribe` создан;
-- endpoint внутри контейнеров равен `http://minio:9000`;
-- credentials в Overtone и inference совпадают.
-
-### `Cannot connect to the Docker daemon`
-
-Запустите Docker Desktop/daemon и повторите команду.
-
-### GPU inference не становится `READY`
-
-Сначала проверьте доступ GPU:
-
-```bash
-docker run --rm --gpus all nvidia/cuda:12.8.1-base-ubuntu24.04 nvidia-smi
-```
-
-Затем проверьте пути моделей и переменные в `../medical-scribe/.env`.
-
-## Важные правила для AI-агента
-
-1. Выполнять Compose-команды из корня Overtone.
-2. Не поднимать второй MinIO из `medical-scribe`.
-3. Не заменять `http://minio:9000` на `localhost` внутри контейнеров.
-4. Не запускать mock и GPU одновременно: оба занимают `50051`.
-5. Не использовать `docker compose down -v` без явного разрешения владельца данных.
-6. Перед удалением конфликтующего контейнера проверить его Compose project и подключённый volume через `docker inspect`.
+- Mock и GPU используют один сервис/порт `50051`; одновременно выбирайте один режим.
+- Не запускайте второй MinIO из medical-scribe.
+- Внутри Docker используйте `minio`/`postgres`, а не `localhost`.
+- Не удаляйте volumes командой `down -v` без явного решения владельца данных.
+- Не переиспользуйте рабочую БД для интеграционных тестов.

@@ -14,9 +14,13 @@ import { dirname, join } from 'node:path';
 export class RecordingAudioEncoderService {
   private readonly logger = new Logger(RecordingAudioEncoderService.name);
   private readonly ffmpegPath: string;
+  private readonly timeoutMs: number;
 
   constructor(config: ConfigService) {
     this.ffmpegPath = config.get<string>('FFMPEG_PATH', 'ffmpeg');
+    this.timeoutMs = Number(config.get('FFMPEG_TIMEOUT_MS', 1800000));
+    if (!Number.isSafeInteger(this.timeoutMs) || this.timeoutMs < 1)
+      throw new Error('Invalid FFMPEG_TIMEOUT_MS');
   }
 
   async encodeToM4a(inputPaths: string[], outputPath: string) {
@@ -69,7 +73,7 @@ export class RecordingAudioEncoderService {
       const timeout = setTimeout(() => {
         child.kill('SIGKILL');
         finish(new UnprocessableEntityException('FFmpeg encoding timed out'));
-      }, 120_000);
+      }, this.timeoutMs);
       const finish = (error?: Error) => {
         if (settled) return;
         settled = true;

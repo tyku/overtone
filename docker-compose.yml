@@ -1,6 +1,6 @@
 # Приложение (api + frontend).
 # Инфра отдельно:
-#   docker compose --env-file backend/.env -f docker-compose.mongo.yaml up -d
+#   docker compose --env-file backend/.env -f docker-compose.postgres.yaml up -d
 #   docker compose --env-file backend/.env -f docker-compose.redis.yaml up -d
 #   docker compose --env-file backend/.env -f docker-compose.s3.yaml up -d
 #   docker compose --env-file backend/.env up -d
