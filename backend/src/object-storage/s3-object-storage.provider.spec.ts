@@ -73,7 +73,7 @@ describe('S3ObjectStorageProvider', () => {
 
   it('distinguishes missing objects from storage outages', async () => {
     const send = jest
-      .fn()
+      .fn<Promise<unknown>, [unknown]>()
       .mockRejectedValueOnce({ $metadata: { httpStatusCode: 404 } })
       .mockRejectedValueOnce({ $metadata: { httpStatusCode: 503 } });
     const provider = new S3ObjectStorageProvider(config, {
@@ -93,7 +93,7 @@ describe('S3ObjectStorageProvider', () => {
     const sourcePath = join(directory, 'audio');
     await writeFile(sourcePath, 'audio');
     const send = jest
-      .fn()
+      .fn<Promise<unknown>, [unknown]>()
       .mockRejectedValue({ $metadata: { httpStatusCode: 412 } });
     const provider = new S3ObjectStorageProvider(config, {
       send,

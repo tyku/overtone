@@ -20,6 +20,8 @@ async function fixture(page: Page) {
 async function start(page: Page) {
   await page.goto('/'); await page.getByRole('button', { name: 'Начать новый приём' }).click();
   await page.getByRole('button', { name: 'Разрешить доступ к микрофону' }).click();
+  await expect(page.locator('#audioInput')).toBeEnabled();
+  await expect(page.locator('#audioInput option').filter({ hasText: 'Fake Default Audio Input' })).toHaveCount(1);
   const value = await page.locator('#audioInput option').evaluateAll((options) => (options.find((option) => (option as HTMLOptionElement).value) as HTMLOptionElement).value);
   await page.locator('#audioInput').selectOption(value);
   await page.getByRole('button', { name: 'Начать запись', exact: true }).click();
