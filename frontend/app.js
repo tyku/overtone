@@ -156,6 +156,9 @@ function updateTimer() {
   $('timer').textContent =
     `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
+function shouldPoll(status) {
+  return status === 'saving' || status === 'processing';
+}
 async function poll(id, version) {
   clearTimeout(pollTimer);
   if (version !== routeVersion || current?.requestId !== id) return;
@@ -167,10 +170,7 @@ async function poll(id, version) {
   } catch (error) {
     if (version === routeVersion) notice(errorMessage(error));
   }
-  if (
-    version === routeVersion &&
-    !['completed', 'abandoned', 'processing_failed'].includes(current?.status)
-  )
+  if (version === routeVersion && shouldPoll(current?.status))
     pollTimer = setTimeout(() => void poll(id, version), 2000);
 }
 async function loadReport(id, version) {
@@ -288,7 +288,7 @@ async function route() {
     await recoveryLinks();
     if (row.status === 'created')
       await selector.refresh().catch(() => undefined);
-    if (!['completed', 'abandoned', 'processing_failed'].includes(row.status))
+    if (shouldPoll(row.status))
       pollTimer = setTimeout(() => void poll(id, version), 2000);
   } catch (error) {
     if (version !== routeVersion) return;

@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 const id = '7aedb5e0-347d-4414-992a-89cb8c9600da';
 async function fixture(page: Page) {
-  const state = { row: { requestId: id, status: 'created', createdAt: '2026-09-05T10:00:00Z', audioStored: false, error: null as any, closedAt: null as string | null }, uploads: [] as { type: string; body: string }[], fail: false, rows: [] as any[] };
+  const state = { row: { requestId: id, status: 'created', createdAt: '2026-09-05T10:00:00Z', audioStored: false, error: null as any, closedAt: null as string | null }, uploads: [] as { type: string; body: string }[], fail: false, rows: [] as any[], reads: 0 };
   await page.route('**/api/requests**', async (route) => {
     const req = route.request(); const url = new URL(req.url()); let status = 200; let body: any;
     if (url.pathname === '/api/requests' && req.method() === 'POST') { status = 201; body = state.row; state.rows = [state.row]; }
@@ -12,7 +12,7 @@ async function fixture(page: Page) {
       else { state.row.status = 'processing'; state.row.audioStored = true; state.row.closedAt = new Date().toISOString(); state.row.error = null; body = state.row; }
     } else if (url.pathname.endsWith('/abandon')) { state.row.status = 'abandoned'; state.row.closedAt = new Date().toISOString(); body = state.row; }
     else if (url.pathname.endsWith('/report')) body = { requestId: id, format: 'markdown', schemaVersion: 1, content: '# Итоговый отчёт\n\n**Рекомендации:** наблюдение.\n\n<script>window.injected=true</script><img src=x onerror="window.injected=true">' };
-    else body = state.row;
+    else { state.reads += 1; body = state.row; }
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   });
   return state;
@@ -34,6 +34,8 @@ test('stop preserves audio; finish sends both parts once and waits without a 30s
   expect(state.uploads).toHaveLength(0);
   await page.getByRole('button', { name: 'Продолжить запись' }).click();
   await page.waitForTimeout(1100);
+  // One initial read plus a state check before each of the two recording starts; no timer polling.
+  expect(state.reads).toBe(3);
   await page.getByRole('button', { name: 'Завершить приём', exact: true }).click();
   await expect(page.locator('#waitingPanel')).toBeVisible();
   expect(state.uploads).toHaveLength(1);
