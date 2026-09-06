@@ -12,7 +12,7 @@
 - Принудительное закрытие, история событий, отображение и скачивание Markdown-отчёта, безопасный рендеринг HTML.
 - Закрытие и намерение обработки фиксируются одной транзакцией PostgreSQL.
 
-**Фоновый исполнитель ещё не подключён.** Таблица `processing_intents` сохраняет долговечное намерение обработки, но её пока никто не выполняет. Приём после успешного сохранения остаётся в статусе «Отчёт в обработке». Запуск `RunFullPipeline`, retry вычислений и запись готового результата будут реализованы отдельным согласуемым блоком. Mock-отчёты в продукт не подставляются. SLO 30 секунд пока не измерен.
+Фоновый исполнитель реализован отдельным процессом NestJS/TypeScript с BullMQ. Он вызывает `StartFullPipeline`, опрашивает `GetProcess` по `commandId` раз в 3 секунды и получает проверенный Markdown-отчёт из S3. Через 5 минут от первой отправки приём получает `processing_failed / PROCESSING_TIMEOUT`; GPU-команда этим не отменяется. SLO 30 секунд на реальном GPU пока не измерен. Подробности: [WORKER_DESIGN.md](WORKER_DESIGN.md).
 
 Авторизация и админка отложены. Все браузеры сейчас используют одного технического пользователя, определённого backend.
 
@@ -72,6 +72,44 @@ npm run start:dev
 
 Backend также раздаёт frontend из соседней папки, поэтому достаточно http://localhost:3000.
 
+### Запуск worker
+
+Нужны Redis, PostgreSQL, S3 и пересобранный medical-scribe с `GetProcess(commandId)` / `StartProcessResponse.command_id`. Уже запущенный старый образ нужно пересобрать: исходники сами в контейнер не попадают.
+
+Для API и worker на хосте в `backend/.env`:
+
+```dotenv
+DATABASE_URL=postgresql://overtone:overtone_local@localhost:5432/overtone
+REDIS_URL=redis://localhost:6379
+REDIS_PASSWORD=<пароль Redis>
+S3_ENDPOINT=http://localhost:9000
+INFERENCE_GRPC_ADDRESS=localhost:50051
+INFERENCE_LLM_BACKEND=LOCAL
+```
+
+Параметры LLM фиксируются при создании команды. `LOCAL` не обращается к платному провайдеру; для настроенного OpenRouter используется `OPENROUTER`.
+
+В отдельном терминале из корня:
+
+```sh
+cd backend
+npm ci
+npm run build
+npm run start:worker
+```
+
+В Docker из корня (инфраструктура уже запущена):
+
+```sh
+docker compose --env-file backend/.env -f docker-compose.redis.yaml up -d
+docker compose --env-file backend/.env -f docker-compose.inference.mock.yaml up -d --build
+docker compose --env-file backend/.env -f docker-compose.worker.yaml up -d --build
+```
+
+`MEDSCRIBE_DATABASE_URL` нужен для inference, `WORKER_DATABASE_URL` — для worker внутри Docker (host `postgres` либо адрес облачной БД). API также должен иметь доступ к Redis. Для Docker API задайте `REDIS_URL=redis://redis:6379`, `INFERENCE_GRPC_ADDRESS=inference:50051`, внутренние адреса PostgreSQL/S3. Локальные и Docker env пока разделяются вручную.
+
+Текущий `mock` medical-scribe имитирует Speech Core/roles, но его FullPipeline требует загруженных моделей: без них он завершится `MODEL_LOAD_FAILED`. Для сквозных тестов используется отдельный fixture из `backend/test/fixtures/`, который не включён в приложение. На GPU выбирайте `docker-compose.inference.gpu.yaml`.
+
 ## HTTP-контракт
 
 | Метод | Путь | Назначение |
@@ -81,6 +119,7 @@ Backend также раздаёт frontend из соседней папки, п�
 | GET | `/api/requests/{id}` | Состояние и `audioStored: true/false/null` |
 | POST | `/api/requests/{id}/complete` | Multipart с аудио либо JSON `{}` для повтора без файлов |
 | POST | `/api/requests/{id}/abandon` | JSON `{}` или `{ "reason": "..." }` |
+| POST | `/api/requests/{id}/retry-processing` | JSON `{ "commandId": "ID предыдущей попытки" }`; проверяет прежнюю команду перед новым запуском |
 | GET | `/api/requests/{id}/report` | Готовый Markdown-документ в JSON-обёртке |
 
 Multipart содержит файлы `part_1`, `part_2`, … и строковое JSON-поле `manifest`:
@@ -155,7 +194,7 @@ Frontend-библиотеки Markdown/очистки HTML закреплены 
 
 ## Inference и правила эксплуатации
 
-`docker-compose.inference.mock.yaml` и `docker-compose.inference.gpu.yaml` по-прежнему собирают сервис из `../medical-scribe`. Их подключение не запускает обработку автоматически, пока нет worker-а Overtone.
+`docker-compose.inference.mock.yaml` и `docker-compose.inference.gpu.yaml` собирают сервис из `../medical-scribe`. Для обработки приёмов также запустите worker Overtone.
 
 - Mock и GPU используют один сервис/порт `50051`; одновременно выбирайте один режим.
 - Не запускайте второй MinIO из medical-scribe.

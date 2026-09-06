@@ -13,6 +13,9 @@ import { RequestsService } from './requests.service';
 import { AudioUploadService } from './audio-upload.service';
 import { RecordingAudioEncoderService } from '../recording-audio-encoder.service';
 import { OBJECT_STORAGE } from '../object-storage/object-storage.types';
+import { ProcessingService } from '../processing/processing.service';
+import { ProcessingQueue } from '../processing/processing-queue';
+import { InferenceClient } from '../processing/inference-client';
 import type {
   ObjectStorageUpload,
   ObjectInfo,
@@ -73,6 +76,9 @@ describeDb('Requests HTTP + PostgreSQL integration', () => {
       providers: [
         RequestDatabase,
         RequestsService,
+        ProcessingService,
+        { provide: ProcessingQueue, useValue: { publish: jest.fn() } },
+        { provide: InferenceClient, useValue: {} },
         AudioUploadService,
         {
           provide: ConfigService,
@@ -91,7 +97,9 @@ describeDb('Requests HTTP + PostgreSQL integration', () => {
     db = app.get(RequestDatabase);
   });
   beforeEach(async () => {
-    await db.pool.query('TRUNCATE request_events,processing_intents,requests');
+    await db.pool.query(
+      'TRUNCATE request_events,processing_intents,processing_commands,requests',
+    );
     objects.clear();
     storageFailure = false;
     blockEncoding = undefined;

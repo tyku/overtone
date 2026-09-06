@@ -49,6 +49,32 @@ CREATE TABLE processing_intents (
 );
 `,
   },
+  {
+    version: 2,
+    sql: `
+CREATE TABLE processing_commands (
+  command_id uuid PRIMARY KEY,
+  request_id uuid NOT NULL REFERENCES requests(id),
+  source_audio_key text NOT NULL,
+  parameters jsonb NOT NULL,
+  status text NOT NULL CHECK(status IN ('pending','polling','succeeded','failed','timed_out')),
+  first_sent_at timestamptz,
+  deadline_at timestamptz,
+  next_action_at timestamptz,
+  revision integer NOT NULL DEFAULT 0,
+  remote_status text,
+  snapshot jsonb,
+  error jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  finished_at timestamptz
+);
+CREATE UNIQUE INDEX processing_commands_one_active ON processing_commands(request_id)
+  WHERE status IN ('pending','polling');
+CREATE INDEX processing_commands_due ON processing_commands(next_action_at) WHERE next_action_at IS NOT NULL;
+CREATE INDEX processing_commands_history ON processing_commands(request_id,created_at);
+ALTER TABLE processing_intents ADD COLUMN command_id uuid REFERENCES processing_commands(command_id);
+`,
+  },
 ];
 
 @Injectable()

@@ -100,4 +100,10 @@ export class RequestApi {
   report(id) {
     return this.call(`/${id}/report`);
   }
+  retryProcessing(id, commandId) {
+    return this.call(`/${id}/retry-processing`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId }),
+    });
+  }
 }

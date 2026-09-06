@@ -8,6 +8,7 @@
 /backend/playwright-report
 /backend/coverage
 /backend/recordings
+*.tsbuildinfo
 
 # Logs
 logs

@@ -12,6 +12,7 @@ import { AudioUploadService, fileHash } from './audio-upload.service';
 import type { ReceivedAudio } from './audio-upload.service';
 import { isClosed, RequestError } from './request.types';
 import type { RequestRow, ApiError } from './request.types';
+import { ProcessingService } from '../processing/processing.service';
 
 const OWNER = 'technical-user';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -23,6 +24,7 @@ export class RequestsService {
     private readonly uploads: AudioUploadService,
     private readonly encoder: RecordingAudioEncoderService,
     @Inject(OBJECT_STORAGE) private readonly storage: DurableObjectStorage,
+    private readonly processing: ProcessingService,
   ) {}
   validateId(id: string) {
     if (!uuid.test(id))
@@ -112,14 +114,33 @@ export class RequestsService {
   }
   async get(id: string) {
     const row = await this.row(id);
-    if (!row.fingerprint || row.audio_stored) return this.view(row);
+    const commands = await this.processing.history(id);
+    if (!row.fingerprint || row.audio_stored)
+      return { ...this.view(row), commands };
     let stored: boolean | null = null;
     try {
       stored = await this.confirmAudio(row);
     } catch {
       /* Unknown is distinct from missing. */
     }
-    return this.view(row, stored);
+    return { ...this.view(row, stored), commands };
+  }
+  async retryProcessing(id: string, body: unknown) {
+    await this.row(id);
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      !('commandId' in body) ||
+      typeof body.commandId !== 'string' ||
+      !uuid.test(body.commandId)
+    )
+      throw new RequestError(
+        400,
+        'INVALID_COMMAND_ID',
+        'Expected commandId of the previous attempt',
+      );
+    await this.processing.retry(id, body.commandId);
+    return this.get(id);
   }
   async complete(id: string, audio?: ReceivedAudio) {
     try {
@@ -195,9 +216,13 @@ export class RequestsService {
               'INSERT INTO processing_intents(request_id,source_audio_key) VALUES($1,$2) ON CONFLICT DO NOTHING',
               [id, row.audio_key],
             );
+            await this.processing.create(client, id, row.audio_key!);
             await this.event(client, id, 'closed', { audioKey: row.audio_key });
             return result.rows[0];
           });
+          await this.processing
+            .kick(id)
+            .catch(() => this.logger.warn(`Queue wakeup deferred: ${id}`));
           await rm(join(this.uploads.root, id), {
             recursive: true,
             force: true,

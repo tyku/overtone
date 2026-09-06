@@ -1,0 +1,172 @@
+syntax = "proto3";
+
+package medscribe.inference.v1;
+
+service InferenceService {
+  rpc RunSpeechCore(RunSpeechCoreRequest) returns (RunStageResponse);
+  rpc RunSpeakerRoles(RunSpeakerRolesRequest) returns (RunStageResponse);
+
+  // The stages after diarization. Each consumes the stage-result.json of the
+  // stage before it and publishes its own artifacts, exactly like the two
+  // above, so a caller can drive the path one step at a time and inspect what
+  // came out in between.
+  rpc RunNormalization(RunStageRequest) returns (RunStageResponse);
+  rpc RunFactExtraction(RunStageRequest) returns (RunStageResponse);
+  rpc RunComposition(RunStageRequest) returns (RunStageResponse);
+
+  // The same three stages in one command. Intermediate artifacts stay in the
+  // container's workspace and are discarded; only the finished document and
+  // the run record reach object storage.
+  rpc RunClinicalPath(RunStageRequest) returns (RunStageResponse);
+
+  // Audio in, document out: all five stages in one command, on the same terms.
+  // Nothing between the source audio and the finished document is published,
+  // so a caller that wants a document gets a document.
+  rpc RunFullPipeline(RunFullPipelineRequest) returns (RunStageResponse);
+
+  // Durable asynchronous full-pipeline API. Start only persists work; the
+  // resident executor owns execution and GetProcess exposes its progress.
+  rpc StartFullPipeline(RunFullPipelineRequest) returns (StartProcessResponse);
+  rpc GetProcess(GetProcessRequest) returns (ProcessResponse);
+
+  rpc GetHealth(HealthRequest) returns (HealthResponse);
+}
+
+// Where the prompt-driven stages send their prompts. Unset means LOCAL: a
+// request that does not name a backend must not start spending money at a
+// hosted provider. Speech Core is unaffected either way - Sortformer and
+// GigaAM always run on the local GPU.
+enum LlmBackend {
+  LLM_BACKEND_UNSPECIFIED = 0;
+  LOCAL = 1;
+  OPENROUTER = 2;
+}
+
+message CommandMeta {
+  string command_id = 1;
+  string request_id = 2;
+  uint32 timeout_seconds = 3;
+}
+
+message RunSpeechCoreRequest {
+  CommandMeta command = 1;
+  string source_audio_key = 2;
+}
+
+message RunSpeakerRolesRequest {
+  CommandMeta command = 1;
+  string input_result_key = 2;
+  LlmBackend llm_backend = 3;
+}
+
+// The post-diarization stages all take the same shape: a command and the key
+// of the previous stage's result. `encounter_id` and `specialty` are optional
+// framing; when empty the service falls back to the request id and its
+// configured default.
+message RunStageRequest {
+  CommandMeta command = 1;
+  string input_result_key = 2;
+  string encounter_id = 3;
+  string specialty = 4;
+  LlmBackend llm_backend = 5;
+}
+
+// The whole path takes source audio rather than a previous stage's result,
+// because there is no previous stage.
+message RunFullPipelineRequest {
+  CommandMeta command = 1;
+  string source_audio_key = 2;
+  string encounter_id = 3;
+  string specialty = 4;
+  LlmBackend llm_backend = 5;
+}
+
+enum StageStatus {
+  STAGE_STATUS_UNSPECIFIED = 0;
+  SUCCESS = 1;
+  IN_PROGRESS = 2;
+  FAILED = 3;
+}
+
+message ErrorDetails {
+  string code = 1;
+  string message = 2;
+}
+
+message RunStageResponse {
+  string command_id = 1;
+  string request_id = 2;
+  StageStatus status = 3;
+  string result_key = 4;
+  ErrorDetails error = 5;
+}
+
+message StartProcessResponse {
+  string process_id = 1;
+  string command_id = 2;
+}
+
+message GetProcessRequest {
+  string process_id = 1;
+  string command_id = 2;
+}
+
+enum ProcessStatus {
+  PROCESS_STATUS_UNSPECIFIED = 0;
+  PROCESS_QUEUED = 1;
+  PROCESS_RUNNING = 2;
+  PROCESS_SUCCEEDED = 3;
+  PROCESS_FAILED = 4;
+  PROCESS_LOST = 5;
+}
+
+enum ProcessStageStatus {
+  PROCESS_STAGE_STATUS_UNSPECIFIED = 0;
+  PROCESS_STAGE_PENDING = 1;
+  PROCESS_STAGE_RUNNING = 2;
+  PROCESS_STAGE_SUCCEEDED = 3;
+  PROCESS_STAGE_FAILED = 4;
+  PROCESS_STAGE_LOST = 5;
+  PROCESS_STAGE_SKIPPED = 6;
+}
+
+message ProcessStage {
+  string stage_code = 1;
+  uint32 ordinal = 2;
+  ProcessStageStatus status = 3;
+  uint32 attempt = 4;
+  string started_at = 5;
+  string finished_at = 6;
+  string updated_at = 7;
+  ErrorDetails error = 8;
+  string result_key = 9;
+}
+
+message ProcessResponse {
+  string process_id = 1;
+  string command_id = 2;
+  string request_id = 3;
+  ProcessStatus status = 4;
+  string current_stage = 5;
+  string result_key = 6;
+  ErrorDetails error = 7;
+  string created_at = 8;
+  string updated_at = 9;
+  string started_at = 10;
+  string finished_at = 11;
+  string heartbeat_at = 12;
+  repeated ProcessStage stages = 13;
+}
+
+message HealthRequest {}
+
+enum HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = 0;
+  READY = 1;
+  NOT_READY = 2;
+}
+
+message HealthResponse {
+  HealthStatus status = 1;
+  string message = 2;
+}

@@ -100,4 +100,11 @@ export class RequestsController {
   @Get(':id/report') report(@Param('id') id: string) {
     return this.service.report(id);
   }
+  @Post(':id/retry-processing') async retryProcessing(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Res() response: Response,
+  ) {
+    response.status(200).json(await this.service.retryProcessing(id, body));
+  }
 }

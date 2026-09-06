@@ -128,9 +128,14 @@ export class S3ObjectStorageProvider implements ObjectStorage, OnModuleInit {
     this.validateObjectKey(objectKey);
     const result = await this.client.send(
       new GetObjectCommand({ Bucket: this.config.bucket, Key: objectKey }),
+      { abortSignal: AbortSignal.timeout(10000) },
     );
     if (!result.Body) throw new Error('Object body is missing');
     const body = result.Body as import('node:stream').Readable;
+    const timer = setTimeout(
+      () => body.destroy(new Error('S3 read timeout')),
+      10000,
+    );
     try {
       if ((result.ContentLength ?? 0) > maxBytes)
         throw new Error('Object is too large');
@@ -144,6 +149,7 @@ export class S3ObjectStorageProvider implements ObjectStorage, OnModuleInit {
       }
       return Buffer.concat(chunks).toString('utf8');
     } finally {
+      clearTimeout(timer);
       body.destroy();
     }
   }

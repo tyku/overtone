@@ -126,6 +126,7 @@ async function render() {
   $('audioInput').disabled = recording || busy;
   $('permissionButton').disabled = recording || busy;
   $('retryButton').disabled = busy;
+  $('retryProcessingButton').disabled = busy || !current.commands?.length;
   $('abandonButton').disabled = busy;
   visible(
     'abandonButton',
@@ -414,6 +415,14 @@ $('recordButton').onclick = () =>
   });
 $('finishButton').onclick = () => void perform(save);
 $('retryButton').onclick = () => void perform(save);
+$('retryProcessingButton').onclick = () => void perform(async () => {
+  clearError();
+  await applyServer(await api.retryProcessing(current.requestId, current.commands[0].commandId));
+  if (shouldPoll(current.status)) {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(() => void poll(current.requestId, routeVersion), 2000);
+  }
+});
 $('abandonButton').onclick = () =>
   void perform(async () => {
     if (
