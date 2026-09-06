@@ -107,8 +107,7 @@ message StartProcessResponse {
 }
 
 message GetProcessRequest {
-  string process_id = 1;
-  string command_id = 2;
+  string command_id = 1;
 }
 
 enum ProcessStatus {

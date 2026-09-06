@@ -82,6 +82,7 @@ Backend также раздаёт frontend из соседней папки, п�
 DATABASE_URL=postgresql://overtone:overtone_local@localhost:5432/overtone
 REDIS_URL=redis://localhost:6379
 REDIS_PASSWORD=<пароль Redis>
+REDIS_HOST_PORT=6379
 S3_ENDPOINT=http://localhost:9000
 INFERENCE_GRPC_ADDRESS=localhost:50051
 INFERENCE_LLM_BACKEND=LOCAL

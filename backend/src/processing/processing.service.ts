@@ -202,11 +202,25 @@ export class ProcessingService {
             'GPU-сервис отклонил параметры команды',
           );
         } else {
+          const transportError = error as {
+            code?: number;
+            details?: string;
+            message?: string;
+          };
+          this.logger.warn(
+            `processing_transport_error: requestId=${command.request_id} commandId=${command.command_id} code=${transportError.code ?? 'unknown'} reason=${transportError.details ?? transportError.message ?? 'unknown'}`,
+          );
+          const outageStarted =
+            command.error?.code !== 'PROCESSING_STATE_UNKNOWN';
           command.error = {
             code: 'PROCESSING_STATE_UNKNOWN',
             message: 'Сервис обработки или хранилище временно недоступны',
           };
-          await this.reschedule(client, command, 'processing_action_retry');
+          await this.reschedule(
+            client,
+            command,
+            outageStarted ? 'processing_state_unknown' : undefined,
+          );
         }
       }
       await this.queue.publish(command);
