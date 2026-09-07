@@ -18,33 +18,21 @@
 
 ## Локальный запуск Docker
 
-Нужны Docker Compose; для запуска inference рядом должен лежать `../medical-scribe/`. Для GPU также нужен NVIDIA Container Runtime.
+Общий Docker Compose находится в соседнем каталоге `../local-stack/` и запускает
+Overtone, medical-scribe, PostgreSQL, Redis и MinIO как один проект.
 
 ```sh
 cp backend/.env.example backend/.env
+cd ../local-stack
+cp .env.example .env
+make up                 # mock inference
+# make up-gpu           # GPU inference
 ```
 
-Если `.env` уже существует, добавьте новые переменные из `.env.example`, не затирая текущие credentials. Для Docker:
-
-```dotenv
-DATABASE_URL=postgresql://overtone:overtone_local@postgres:5432/overtone
-POSTGRES_USER=overtone
-POSTGRES_PASSWORD=overtone_local
-POSTGRES_DB=overtone
-S3_ENDPOINT=http://minio:9000
-```
-
-При изменении пользователя/пароля PostgreSQL обновите и `DATABASE_URL`. Пароль внутри URL должен быть URL-encoded.
-
-Из корня Overtone:
-
-```sh
-docker compose --env-file backend/.env \
-  -f docker-compose.yml \
-  -f docker-compose.postgres.yaml \
-  -f docker-compose.s3.yaml \
-  up -d --build
-```
+Для принудительной пересборки используйте `make up REBUILD=1` либо
+`make up-gpu REBUILD=1`. Флаги сборки передаются через `BUILD_FLAGS`, например
+`BUILD_FLAGS="--no-cache --pull"`. Полный список команд находится в
+`../local-stack/README.md`.
 
 - Frontend: http://localhost:8080
 - API/health: http://localhost:3000/api/health
@@ -99,17 +87,18 @@ npm run build
 npm run start:worker
 ```
 
-В Docker из корня (инфраструктура уже запущена):
+В Docker из общего `../local-stack/`:
 
 ```sh
-docker compose --env-file backend/.env -f docker-compose.redis.yaml up -d
-docker compose --env-file backend/.env -f docker-compose.inference.mock.yaml up -d --build
-docker compose --env-file backend/.env -f docker-compose.worker.yaml up -d --build
+make up
+# или
+make up-gpu
 ```
 
-`MEDSCRIBE_DATABASE_URL` нужен для inference, `WORKER_DATABASE_URL` — для worker внутри Docker (host `postgres` либо адрес облачной БД). API также должен иметь доступ к Redis. Для Docker API задайте `REDIS_URL=redis://redis:6379`, `INFERENCE_GRPC_ADDRESS=inference:50051`, внутренние адреса PostgreSQL/S3. Локальные и Docker env пока разделяются вручную.
+Docker-адреса PostgreSQL, Redis, S3 и inference задаются общим Compose. Настройки
+и credentials локального стека находятся в `../local-stack/.env`.
 
-Текущий `mock` medical-scribe имитирует Speech Core/roles, но его FullPipeline требует загруженных моделей: без них он завершится `MODEL_LOAD_FAILED`. Для сквозных тестов используется отдельный fixture из `backend/test/fixtures/`, который не включён в приложение. На GPU выбирайте `docker-compose.inference.gpu.yaml`.
+Текущий `mock` medical-scribe имитирует Speech Core/roles, но его FullPipeline требует загруженных моделей: без них он завершится `MODEL_LOAD_FAILED`. Для сквозных тестов используется отдельный fixture из `backend/test/fixtures/`, который не включён в приложение. Для GPU используйте `make up-gpu` в `../local-stack/`.
 
 ## HTTP-контракт
 
@@ -195,7 +184,8 @@ Frontend-библиотеки Markdown/очистки HTML закреплены 
 
 ## Inference и правила эксплуатации
 
-`docker-compose.inference.mock.yaml` и `docker-compose.inference.gpu.yaml` собирают сервис из `../medical-scribe`. Для обработки приёмов также запустите worker Overtone.
+Общий `../local-stack/compose.yaml` собирает inference из `../medical-scribe`.
+Для обработки приёмов он также запускает worker Overtone.
 
 - Mock и GPU используют один сервис/порт `50051`; одновременно выбирайте один режим.
 - Не запускайте второй MinIO из medical-scribe.
