@@ -34,7 +34,7 @@ make up                 # mock inference
 `BUILD_FLAGS="--no-cache --pull"`. Полный список команд находится в
 `../local-stack/README.md`.
 
-- Frontend: http://localhost:8080
+- Frontend через отдельный Nginx: http://localhost:8080
 - API/health: http://localhost:3000/api/health
 - MinIO: http://localhost:9001
 - PostgreSQL: localhost:5432
@@ -58,7 +58,26 @@ npm ci
 npm run start:dev
 ```
 
-Backend также раздаёт frontend из соседней папки, поэтому достаточно http://localhost:3000.
+Backend обслуживает только `/api` и не раздаёт frontend.
+
+## Запуск frontend на хосте
+
+Frontend — отдельное React/Vite-приложение. Для быстрой разработки с hot reload:
+
+```sh
+cd frontend
+npm ci
+npm run dev
+```
+
+Dev server доступен на http://localhost:5173 и проксирует относительные запросы
+`/api` в backend на `http://127.0.0.1:3000`. Production build создаётся командой
+`npm run build` в каталоге `frontend/dist`.
+
+Frontend не зависит от Nginx и не содержит его конфигурацию. В production-like
+локальном запуске одноразовый сервис `frontend-assets` копирует `dist` в Docker
+volume, а отдельный Nginx из `../local-stack/nginx/nginx.conf` раздаёт этот
+volume и проксирует `/api`.
 
 ### Запуск worker
 
@@ -158,7 +177,12 @@ Multipart содержит файлы `part_1`, `part_2`, … и строков�
 - `HTTP_UPLOAD_TIMEOUT_MS=2100000` — 35 минут на HTTP upload;
 - Nginx: 1025 MiB с запасом на multipart, ожидание upstream 35 минут.
 
-При изменении размера/таймаута синхронизируйте backend, Nginx и timeout multipart в `frontend/request-api.js`. Это технические пределы, а не 30-секундный SLO отчёта. Проверены Chromium и WebM/Opus; Safari/мобильные браузеры и часовые записи ещё требуют проверки. Используются IndexedDB, Web Locks и Web Crypto; доступ к микрофону требует HTTPS, кроме localhost.
+При изменении размера/таймаута синхронизируйте backend, Nginx в `../local-stack`
+и timeout multipart в `frontend/src/request-api.ts`. Это технические пределы,
+а не 30-секундный SLO отчёта. Проверены Chromium и WebM/Opus;
+Safari/мобильные браузеры и часовые записи ещё требуют проверки. Используются
+IndexedDB, Web Locks и Web Crypto; доступ к микрофону требует HTTPS, кроме
+localhost.
 
 ## Проверки
 
@@ -166,7 +190,18 @@ Multipart содержит файлы `part_1`, `part_2`, … и строков�
 cd backend
 npm run build
 npm test -- --runInBand
-npm run test:frontend
+```
+
+Frontend проверяется независимо:
+
+```sh
+cd frontend
+npm ci
+npm run typecheck
+npm test
+npm run build
+npx playwright install chromium
+npm run test:browser
 ```
 
 Интеграционные тесты используют **отдельную тестовую БД**: они очищают таблицы приёмов.
@@ -174,13 +209,12 @@ npm run test:frontend
 ```sh
 TEST_DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/overtone_test npm run test:integration
 TEST_FFMPEG=ffmpeg TEST_FFPROBE=ffprobe npm test -- --runInBand
-npx playwright install chromium
-npm run test:browser
 ```
 
 Без `TEST_DATABASE_URL` SQL-интеграционные тесты пропускаются. Они проверяют реальную PostgreSQL с тестовым S3-адаптером; браузерные проверки используют настоящий MediaRecorder и тестовые HTTP-ответы. Отдельный тест проверяет настоящий FFmpeg. Полный Docker/MinIO/GPU smoke нужен перед развёртыванием.
 
-Frontend-библиотеки Markdown/очистки HTML закреплены в backend lockfile и поставляются локально с лицензиями. После обновления зависимостей: `npm run vendor:frontend`.
+Frontend-библиотеки, включая Markdown renderer и HTML sanitizer, закреплены в
+`frontend/package-lock.json` и включаются Vite в production bundle.
 
 ## Inference и правила эксплуатации
 

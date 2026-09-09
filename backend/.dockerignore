@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+test-results
+recordings
+.git
+.DS_Store
+.idea
+.vscode
+.env
+.env.*
+!.env.example

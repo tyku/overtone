@@ -234,3 +234,21 @@ test('processing failure retries the current command and returns to waiting', as
   await expect(page.locator('#waitingPanel')).toBeVisible();
   expect(state.retries).toEqual([{ commandId }]);
 });
+
+test('processing status keeps polling until the server reaches a terminal state', async ({
+  page,
+}) => {
+  const state = await fixture(page);
+  state.row.status = 'processing';
+  state.row.audioStored = true;
+  state.rows = [state.row];
+
+  await page.goto(`/#/requests/${id}`);
+  await expect(page.locator('#waitingPanel')).toBeVisible();
+  await expect.poll(() => state.reads, { timeout: 7000 }).toBeGreaterThanOrEqual(3);
+
+  state.row.status = 'completed';
+  await expect(page.locator('#reportContent h1')).toHaveText('Итоговый отчёт', {
+    timeout: 5000,
+  });
+});

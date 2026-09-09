@@ -1,22 +1,16 @@
-# ──────────────────────────────────────────────
-# Stage 1 — Backend build
-# ──────────────────────────────────────────────
-FROM node:22-alpine AS backend-build
+FROM node:22.22.0-alpine3.23 AS backend-build
 WORKDIR /app
 
-COPY backend/package.json backend/package-lock.json ./
+COPY package.json package-lock.json ./
 RUN npm ci
 
-COPY backend/tsconfig*.json backend/nest-cli.json ./
-COPY backend/src ./src
+COPY tsconfig*.json nest-cli.json ./
+COPY src ./src
 
 RUN npm run build && npm prune --omit=dev
 
 
-# ──────────────────────────────────────────────
-# Stage 2 — Backend runtime
-# ──────────────────────────────────────────────
-FROM node:22-alpine AS backend
+FROM node:22.22.0-alpine3.23 AS backend
 WORKDIR /app
 ENV NODE_ENV=production
 
@@ -28,14 +22,3 @@ COPY --from=backend-build /app/package.json ./package.json
 
 EXPOSE 3000
 CMD ["node", "dist/main.js"]
-
-
-# ──────────────────────────────────────────────
-# Stage 3 — Frontend runtime
-# ──────────────────────────────────────────────
-FROM nginx:alpine AS frontend
-
-COPY frontend/ /usr/share/nginx/html
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 80
