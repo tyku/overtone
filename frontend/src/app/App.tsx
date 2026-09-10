@@ -39,13 +39,20 @@ function Application() {
 
   if (auth.loading) return <main className="auth-shell"><p className="muted">Проверяем сессию…</p></main>;
   if (!auth.user)
-    return <LoginPage destination={route.name === 'admin' ? '/admin' : '/requests'} />;
+    return (
+      <LoginPage
+        destination={route.name === 'admin' ? '/admin' : '/requests'}
+        admin={route.name === 'admin'}
+      />
+    );
   const isAdmin = auth.user.permissions.includes('admin:access');
 
   return (
-    <main className="shell" onClick={preventNavigationWhileBusy}>
-      <header className="topbar">
-        <AppLink className="brand" href="/requests">Overtone</AppLink>
+    <main className={`shell${route.name === 'admin' ? ' admin-shell' : ''}`} onClick={preventNavigationWhileBusy}>
+      <header className={`topbar${route.name === 'admin' ? ' admin-topbar' : ''}`}>
+        <AppLink className="brand" href="/requests">
+          Overtone {route.name === 'admin' && <span className="admin-badge">ADMIN</span>}
+        </AppLink>
         <nav className="topnav" aria-label="Основная навигация">
           <AppLink href="/requests">Приёмы</AppLink>
           <AppLink href="/profile">Профиль</AppLink>

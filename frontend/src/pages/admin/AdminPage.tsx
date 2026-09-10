@@ -34,8 +34,15 @@ export function AdminPage() {
   };
 
   return (
-    <section>
-      <div className="page-heading"><div><p className="eyebrow">Только защищённая сеть</p><h1>Администрирование</h1></div></div>
+    <section className="admin-page">
+      <div className="admin-hero">
+        <div className="admin-hero-icon" aria-hidden="true">A</div>
+        <div>
+          <p className="admin-kicker">Системное администрирование</p>
+          <h1>Управление доступом</h1>
+          <p>Клиники, учётные записи и права пользователей</p>
+        </div>
+      </div>
       {error && <p className="error" role="alert">{error}</p>}
       {secret && <OneTimePassword {...secret} close={() => setSecret(null)} />}
       <ClinicSection clinics={clinics} create={async (name) => {
@@ -61,4 +68,3 @@ export function AdminPage() {
     </section>
   );
 }
-

@@ -60,6 +60,18 @@ test('logs in with administrator-issued email and password', async ({ page }) =>
   await expect(page.getByRole('heading', { name: 'Приёмы' })).toBeVisible();
 });
 
+test('clearly marks the dedicated administrator login', async ({ page }) => {
+  await page.route('**/api/auth/session', (route) =>
+    json(route, 401, { error: { code: 'AUTH_REQUIRED', message: 'Authentication required' } }),
+  );
+
+  await page.goto('/admin');
+
+  await expect(page.getByRole('heading', { name: 'Вход в админку' })).toBeVisible();
+  await expect(page.getByText('OVERTONE · ADMIN')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Войти в админку' })).toBeVisible();
+});
+
 test('shows a generated password once and only its date after returning', async ({ page }) => {
   const users: Array<Record<string, unknown>> = [];
   await page.route('**/api/auth/session', (route) => json(route, 200, { user: admin }));
@@ -100,4 +112,3 @@ test('shows a generated password once and only its date after returning', async 
   await expect(page.getByText('doctor@example.com')).toBeVisible();
   await expect(page.getByText('Пароль создан')).toBeVisible();
 });
-

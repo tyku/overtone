@@ -2,7 +2,13 @@ import { useState, type FormEvent } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { navigate } from '../app/router';
 
-export function LoginPage({ destination = '/requests' }: { destination?: string }) {
+export function LoginPage({
+  destination = '/requests',
+  admin = false,
+}: {
+  destination?: string;
+  admin?: boolean;
+}) {
   const auth = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,11 +30,20 @@ export function LoginPage({ destination = '/requests' }: { destination?: string 
   };
 
   return (
-    <main className="auth-shell">
-      <section className="auth-card" aria-labelledby="login-title">
-        <p className="eyebrow">Overtone</p>
-        <h1 id="login-title">Вход</h1>
-        <p className="muted">Используйте почту и пароль, полученные от администратора.</p>
+    <main className={`auth-shell${admin ? ' admin-auth-shell' : ''}`}>
+      <section className={`auth-card${admin ? ' admin-auth-card' : ''}`} aria-labelledby="login-title">
+        {admin ? (
+          <div className="admin-login-heading">
+            <span className="admin-mark" aria-hidden="true">A</span>
+            <div><p className="admin-kicker">OVERTONE · ADMIN</p><p className="admin-zone-label">Закрытая зона управления</p></div>
+          </div>
+        ) : <p className="eyebrow">Overtone</p>}
+        <h1 id="login-title">{admin ? 'Вход в админку' : 'Вход'}</h1>
+        <p className="muted">
+          {admin
+            ? 'Управление клиниками, пользователями и правами доступа.'
+            : 'Используйте почту и пароль, полученные от администратора.'}
+        </p>
         <form className="form-stack" onSubmit={(event) => void submit(event)}>
           <label>
             Почта
@@ -53,8 +68,8 @@ export function LoginPage({ destination = '/requests' }: { destination?: string 
             />
           </label>
           {error && <p className="error" role="alert">{error}</p>}
-          <button className="primary" disabled={submitting} type="submit">
-            {submitting ? 'Входим…' : 'Войти'}
+          <button className={admin ? 'admin-primary' : 'primary'} disabled={submitting} type="submit">
+            {submitting ? 'Входим…' : admin ? 'Войти в админку' : 'Войти'}
           </button>
         </form>
       </section>

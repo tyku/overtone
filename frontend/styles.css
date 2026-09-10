@@ -239,6 +239,118 @@ input:disabled {
   background: #18263b;
   box-shadow: 0 24px 80px #0004;
 }
+.admin-auth-shell {
+  background:
+    radial-gradient(circle at 75% 12%, #7c431f55 0, transparent 34%),
+    linear-gradient(145deg, #18130f, #101827 62%);
+}
+.admin-auth-card {
+  border-color: #d38a3c66;
+  background: linear-gradient(155deg, #2b2119, #182033 72%);
+  box-shadow: 0 24px 80px #0008, inset 0 1px #f5b86b22;
+}
+.admin-login-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.admin-mark,
+.admin-hero-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: #e59642;
+  color: #24170d;
+  font-weight: 900;
+  box-shadow: 0 8px 24px #d9762844;
+}
+.admin-kicker {
+  margin: 0;
+  color: #f2ae66;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.admin-zone-label {
+  margin: 3px 0 0;
+  color: #ad9c8c;
+  font-size: 0.82rem;
+}
+.admin-primary {
+  background: #d9782c;
+  color: #fff8f0;
+  border-color: #ed9a55;
+}
+.admin-primary:hover {
+  background: #e68a3e;
+}
+.admin-shell {
+  max-width: 1120px;
+}
+.admin-topbar {
+  border-bottom-color: #d88a3b44;
+}
+.admin-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 4px 7px;
+  border: 1px solid #d88a3b88;
+  border-radius: 6px;
+  color: #f2ae66;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  vertical-align: 3px;
+}
+.admin-page {
+  --admin-accent: #e59642;
+}
+.admin-hero {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin: 8px 0 48px;
+  padding: 26px 28px;
+  border: 1px solid #d88a3b55;
+  border-radius: 18px;
+  background: linear-gradient(110deg, #372619, #1a2639 72%);
+  box-shadow: inset 4px 0 #e59642;
+}
+.admin-hero-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 15px;
+  font-size: 1.3rem;
+}
+.admin-hero h1 {
+  margin: 4px 0;
+}
+.admin-hero p:last-child {
+  margin: 0;
+  color: #b9a99a;
+}
+.admin-page .admin-section {
+  padding: 28px;
+  border: 1px solid #d88a3b33;
+  border-radius: 18px;
+  background: #171f2eaa;
+}
+.admin-page .admin-section > div:first-child h2 {
+  margin-top: 5px;
+}
+.admin-page .primary {
+  background: #c96e2a;
+}
+.admin-page .primary:hover {
+  background: #dd8137;
+}
+.admin-page .eyebrow {
+  color: #d99a60;
+}
 .form-stack {
   display: grid;
   gap: 18px;
