@@ -14,11 +14,10 @@ import {
 } from '../auth/permissions.guard';
 import { SessionGuard } from '../auth/session.guard';
 import type { AuthenticatedUser } from '../auth/auth.types';
-import { AdminNetworkGuard } from './admin-network.guard';
 import { AdminService } from './admin.service';
 
 @Controller('api/admin')
-@UseGuards(AdminNetworkGuard, SessionGuard, PermissionsGuard)
+@UseGuards(SessionGuard, PermissionsGuard)
 @RequirePermissions('admin:access')
 export class AdminController {
   constructor(private readonly admin: AdminService) {}
@@ -63,4 +62,3 @@ export class AdminController {
     return this.admin.regeneratePassword(id);
   }
 }
-

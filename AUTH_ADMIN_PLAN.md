@@ -1,5 +1,7 @@
 # Authentication and administration rollout
 
+Status: implemented. The sections below match the reviewable commit boundaries.
+
 The feature is delivered in small, independently reviewable commits. Backend and
 frontend images remain independently deployable; compatibility is governed by the
 HTTP API contract, not by matching image revisions.
@@ -18,7 +20,7 @@ HTTP API contract, not by matching image revisions.
 - Add user creation/listing, permissions, blocking and password regeneration.
 - Return a generated password only in the create/regenerate response.
 - Add a one-time CLI command for creating the first administrator.
-- Enforce the admin network policy and permissions in the backend.
+- Enforce administrator permissions in the backend.
 
 ## 3. React authentication and administration
 
@@ -31,11 +33,10 @@ HTTP API contract, not by matching image revisions.
 
 - Restrict `/admin` and `/api/admin` with a separately mounted allow-list.
 - Keep the local-stack allow-list explicitly unrestricted.
-- Document a production/VPN CIDR example and keep the backend check as defence in depth.
+- Document a production/VPN CIDR example; network access is enforced only by Nginx.
 
 ## 5. Verification and operations
 
 - Cover password, session, authorization and one-time-secret behaviour with tests.
 - Run backend, frontend browser and Nginx smoke suites.
 - Document local bootstrap, login and production configuration.
-

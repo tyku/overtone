@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   HttpException,
   UnauthorizedException,
@@ -188,7 +189,7 @@ function validatePasswordInput(value: unknown): string {
 
 function profileInput(body: unknown) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    throw new UnauthorizedException('Invalid profile');
+    throw new BadRequestException('Invalid profile');
   }
   const value = body as Record<string, unknown>;
   if (
@@ -196,7 +197,7 @@ function profileInput(body: unknown) {
       (key) => !['fullName', 'position', 'specialization'].includes(key),
     )
   )
-    throw new UnauthorizedException('Invalid profile');
+    throw new BadRequestException('Invalid profile');
   return {
     fullName: optionalText(value.fullName, 300),
     position: optionalText(value.position, 200),
@@ -206,10 +207,10 @@ function profileInput(body: unknown) {
 
 function optionalText(value: unknown, max: number): string | null {
   if (value === undefined || value === null || value === '') return null;
-  if (typeof value !== 'string') throw new UnauthorizedException('Invalid profile');
+  if (typeof value !== 'string') throw new BadRequestException('Invalid profile');
   const normalized = value.trim();
   if (!normalized || normalized.length > max)
-    throw new UnauthorizedException('Invalid profile');
+    throw new BadRequestException('Invalid profile');
   return normalized;
 }
 

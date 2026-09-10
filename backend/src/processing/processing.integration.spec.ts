@@ -116,6 +116,16 @@ describeDb('Processing: real PostgreSQL and gRPC', () => {
     await db.pool.query(
       'TRUNCATE request_events,processing_intents,processing_commands,requests',
     );
+    await db.pool.query(`
+      INSERT INTO clinics(id,name)
+      VALUES('00000000-0000-4000-8000-000000000001','Test clinic') ON CONFLICT DO NOTHING;
+      INSERT INTO users(id,clinic_id,email,blocked_at,is_system)
+      VALUES(
+        '00000000-0000-4000-8000-000000000001',
+        '00000000-0000-4000-8000-000000000001',
+        'processing-test@invalid.local',now(),true
+      ) ON CONFLICT DO NOTHING;
+    `);
     remote.clear();
     files.clear();
     starts = [];

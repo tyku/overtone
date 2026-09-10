@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { navigate } from '../app/router';
 
-export function LoginPage() {
+export function LoginPage({ destination = '/requests' }: { destination?: string }) {
   const auth = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -15,7 +15,7 @@ export function LoginPage() {
     setError('');
     try {
       await auth.login(email, password);
-      navigate('/requests', true);
+      navigate(destination, true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Не удалось войти');
     } finally {
@@ -61,4 +61,3 @@ export function LoginPage() {
     </main>
   );
 }
-

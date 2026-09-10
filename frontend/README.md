@@ -27,7 +27,10 @@ make frontend
 ## Where to make changes
 
 - `src/app/` — application shell, routing composition, and shared service instances.
+- `src/auth/` — session context, login/profile/admin API clients, and auth types.
 - `src/pages/` — whole screens. Pages compose components and connect them to hooks.
+- `src/pages/admin/` — administration screen orchestration.
+- `src/components/admin/` — clinic, user, permission, and one-time-password UI.
 - `src/components/request/` — presentational panels of the request screen.
 - `src/hooks/use-request-data.ts` — initial request loading, local state sync, and polling hookup.
 - `src/hooks/use-request-polling.ts` — polling lifecycle, retry backoff, focus/online recovery.
@@ -37,6 +40,12 @@ make frontend
 - `src/request-store.ts` — IndexedDB persistence and cleanup policy.
 - `src/visit-recorder.ts` and `src/audio-meter.ts` — browser media primitives.
 - `src/shared/` — formatting, status labels, downloads, and user-facing error mapping.
+- `src/shared/api-client.ts` — versioned same-origin HTTP transport shared by all modules.
+
+The SPA uses real history paths: `/login`, `/requests`, `/profile`, and
+`/admin`. This lets the separate Nginx service restrict the admin page itself;
+URL fragments such as `/#/admin` never reach a reverse proxy. Old request hash
+links are migrated in the browser for compatibility.
 
 `src/App.tsx` is only a stable public export. New application logic should be
 placed in the layer that owns the concern instead of being added there.

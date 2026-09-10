@@ -26,6 +26,7 @@ async function bootstrap() {
         'Initial administrator created.',
         `Email: ${result.user.email}`,
         `Password (shown once): ${result.password}`,
+        `Legacy requests assigned: ${result.claimedLegacyRequests}`,
       ].join('\n') + '\n',
     );
   } finally {
@@ -39,4 +40,3 @@ bootstrap().catch((error: unknown) => {
   );
   process.exitCode = 1;
 });
-

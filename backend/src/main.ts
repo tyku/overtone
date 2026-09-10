@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
 import { apiVersionMiddleware } from './api-version.middleware';
+import { sameOriginMiddleware } from './request-security.middleware';
 
 function logLevelsForEnvironment(nodeEnv: string): LogLevel[] {
   return nodeEnv === 'development'
@@ -15,6 +16,11 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.enableShutdownHooks();
   app.use('/api', apiVersionMiddleware);
+  app.use('/api', sameOriginMiddleware);
+  app.use(['/api/auth', '/api/admin'], (_request: Request, response: Response, next: NextFunction) => {
+    response.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   const config = app.get(ConfigService);
   const trustProxyHops = Number(config.get<string>('TRUST_PROXY_HOPS', '1'));
   if (!Number.isSafeInteger(trustProxyHops) || trustProxyHops < 0 || trustProxyHops > 8)

@@ -126,6 +126,12 @@ describeDb('Requests HTTP + PostgreSQL integration', () => {
     await db.pool.query(
       'TRUNCATE request_events,processing_intents,processing_commands,requests',
     );
+    await db.pool.query(`
+      INSERT INTO clinics(id,name) VALUES('${TEST_USER_ID}','Test clinic') ON CONFLICT DO NOTHING;
+      INSERT INTO users(id,clinic_id,email,blocked_at,is_system)
+      VALUES('${TEST_USER_ID}','${TEST_USER_ID}','request-test@invalid.local',now(),true)
+      ON CONFLICT DO NOTHING;
+    `);
     objects.clear();
     storageFailure = false;
     blockEncoding = undefined;

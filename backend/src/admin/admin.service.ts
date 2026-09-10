@@ -8,7 +8,6 @@ import {
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { DatabaseService } from '../database/database.service';
-import { normalizeEmail } from '../auth/auth.service';
 import { PasswordService } from '../auth/password.service';
 import { PERMISSIONS } from '../auth/auth.types';
 import type { Permission } from '../auth/auth.types';
@@ -128,26 +127,31 @@ export class AdminService {
         const clinicId = has(value, 'clinicId')
           ? idValue(value.clinicId, 'clinicId')
           : current.clinic_id;
-        const result = await client.query<AdminUserRow>(
-          `UPDATE users SET clinic_id=$2,full_name=$3,position=$4,specialization=$5,
-             blocked_at=CASE WHEN $6 THEN COALESCE(blocked_at,now()) ELSE NULL END,
-             updated_at=now()
-           WHERE id=$1 AND NOT is_system RETURNING *`,
-          [
-            userId,
-            clinicId,
-            has(value, 'fullName')
-              ? optionalText(value.fullName, 'fullName', 300)
-              : current.full_name,
-            has(value, 'position')
-              ? optionalText(value.position, 'position', 200)
-              : current.position,
-            has(value, 'specialization')
-              ? optionalText(value.specialization, 'specialization', 200)
-              : current.specialization,
-            blocked,
-          ],
-        );
+        let result;
+        try {
+          result = await client.query<AdminUserRow>(
+            `UPDATE users SET clinic_id=$2,full_name=$3,position=$4,specialization=$5,
+               blocked_at=CASE WHEN $6 THEN COALESCE(blocked_at,now()) ELSE NULL END,
+               updated_at=now()
+             WHERE id=$1 AND NOT is_system RETURNING *`,
+            [
+              userId,
+              clinicId,
+              has(value, 'fullName')
+                ? optionalText(value.fullName, 'fullName', 300)
+                : current.full_name,
+              has(value, 'position')
+                ? optionalText(value.position, 'position', 200)
+                : current.position,
+              has(value, 'specialization')
+                ? optionalText(value.specialization, 'specialization', 200)
+                : current.specialization,
+              blocked,
+            ],
+          );
+        } catch (error) {
+          translateConstraint(error);
+        }
         if (!result.rows[0]) throw userNotFound();
         if (has(value, 'permissions')) {
           await replacePermissions(client, userId, permissions);
@@ -185,7 +189,7 @@ export class AdminService {
   }
 
   async bootstrapAdmin(emailValue: unknown, clinicNameValue: unknown) {
-    const email = normalizeEmail(emailValue);
+    const email = adminEmail(emailValue);
     const clinicName = requiredText(clinicNameValue, 'clinicName', 300);
     const password = this.passwords.generate();
     const passwordHash = await this.passwords.hash(password);
@@ -210,9 +214,21 @@ export class AdminService {
           [userId, clinicId, email, passwordHash],
         );
         await replacePermissions(client, userId, [...PERMISSIONS]);
-        return this.getUser(userId, client);
+        const claimed = await client.query(
+          `UPDATE requests SET owner_id=$1
+           WHERE owner_id='00000000-0000-4000-8000-000000000001'`,
+          [userId],
+        );
+        return {
+          user: await this.getUser(userId, client),
+          claimedLegacyRequests: claimed.rowCount ?? 0,
+        };
       });
-      return { user: viewUser(user), password };
+      return {
+        user: viewUser(user.user),
+        password,
+        claimedLegacyRequests: user.claimedLegacyRequests,
+      };
     } finally {
       client.release();
     }
@@ -280,7 +296,7 @@ function createUserInput(body: unknown) {
     throw invalid('Invalid user');
   }
   return {
-    email: normalizeEmail(value.email),
+    email: adminEmail(value.email),
     clinicId: idValue(value.clinicId, 'clinicId'),
     permissions:
       value.permissions === undefined
@@ -328,6 +344,15 @@ function requiredText(value: unknown, field: string, max: number): string {
   const result = optionalText(value, field, max);
   if (!result) throw invalid(`${field} is required`);
   return result;
+}
+
+function adminEmail(value: unknown): string {
+  if (typeof value !== 'string') throw invalid('email is required');
+  const email = value.trim().toLowerCase();
+  if (email.length < 3 || email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw invalid('Invalid email');
+  }
+  return email;
 }
 
 function optionalText(

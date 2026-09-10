@@ -38,7 +38,8 @@ function Application() {
   };
 
   if (auth.loading) return <main className="auth-shell"><p className="muted">Проверяем сессию…</p></main>;
-  if (!auth.user) return <LoginPage />;
+  if (!auth.user)
+    return <LoginPage destination={route.name === 'admin' ? '/admin' : '/requests'} />;
   const isAdmin = auth.user.permissions.includes('admin:access');
 
   return (
