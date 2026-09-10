@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { AdminModule } from './admin/admin.module';
 import { DatabaseModule } from './database/database.module';
 import { RequestsModule } from './requests/requests.module';
 
@@ -11,6 +12,7 @@ import { RequestsModule } from './requests/requests.module';
     ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
     DatabaseModule,
     AuthModule,
+    AdminModule,
     RequestsModule,
   ],
   controllers: [AppController],

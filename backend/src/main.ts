@@ -16,6 +16,10 @@ async function bootstrap() {
   app.enableShutdownHooks();
   app.use('/api', apiVersionMiddleware);
   const config = app.get(ConfigService);
+  const trustProxyHops = Number(config.get<string>('TRUST_PROXY_HOPS', '1'));
+  if (!Number.isSafeInteger(trustProxyHops) || trustProxyHops < 0 || trustProxyHops > 8)
+    throw new Error('TRUST_PROXY_HOPS must be between 0 and 8');
+  app.getHttpAdapter().getInstance().set('trust proxy', trustProxyHops);
   const nodeEnv = config.get<string>('NODE_ENV', 'development');
   const logLevels = logLevelsForEnvironment(nodeEnv);
   Logger.overrideLogger(logLevels);
