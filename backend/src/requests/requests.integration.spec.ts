@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { RequestsController } from './requests.controller';
-import { RequestDatabase } from './request-database.service';
+import { DatabaseService } from '../database/database.service';
 import { RequestsService } from './requests.service';
 import { AudioUploadService } from './audio-upload.service';
 import { RecordingAudioEncoderService } from '../recording-audio-encoder.service';
@@ -20,6 +20,11 @@ import type {
   ObjectStorageUpload,
   ObjectInfo,
 } from '../object-storage/object-storage.types';
+import { SessionGuard } from '../auth/session.guard';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import type { AuthenticatedRequest } from '../auth/auth.types';
+
+const TEST_USER_ID = '00000000-0000-4000-8000-000000000001';
 
 type TestBody = {
   requestId: string;
@@ -33,7 +38,7 @@ const describeDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
 describeDb('Requests HTTP + PostgreSQL integration', () => {
   let app: INestApplication;
   let server: Server;
-  let db: RequestDatabase;
+  let db: DatabaseService;
   let root: string;
   const objects = new Map<string, ObjectInfo & { content: Buffer }>();
   let storageFailure = false;
@@ -74,7 +79,7 @@ describeDb('Requests HTTP + PostgreSQL integration', () => {
     const module = await Test.createTestingModule({
       controllers: [RequestsController],
       providers: [
-        RequestDatabase,
+        DatabaseService,
         RequestsService,
         ProcessingService,
         { provide: ProcessingQueue, useValue: { publish: jest.fn() } },
@@ -90,11 +95,32 @@ describeDb('Requests HTTP + PostgreSQL integration', () => {
         { provide: OBJECT_STORAGE, useValue: storage },
         { provide: RecordingAudioEncoderService, useValue: encoder },
       ],
-    }).compile();
+    })
+      .overrideGuard(SessionGuard)
+      .useValue({
+        canActivate: (context: {
+          switchToHttp(): { getRequest(): AuthenticatedRequest };
+        }) => {
+          context.switchToHttp().getRequest().auth = {
+            id: TEST_USER_ID,
+            clinicId: TEST_USER_ID,
+            clinicName: 'Test',
+            email: 'test@example.com',
+            fullName: null,
+            position: null,
+            specialization: null,
+            permissions: ['requests:use'],
+          };
+          return true;
+        },
+      })
+      .overrideGuard(PermissionsGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
     app = module.createNestApplication();
     await app.init();
     server = app.getHttpServer() as Server;
-    db = app.get(RequestDatabase);
+    db = app.get(DatabaseService);
   });
   beforeEach(async () => {
     await db.pool.query(

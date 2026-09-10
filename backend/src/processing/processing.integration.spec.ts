@@ -13,7 +13,7 @@ import type {
   sendUnaryData,
 } from '@grpc/grpc-js';
 import { loadSync } from '@grpc/proto-loader';
-import { RequestDatabase } from '../requests/request-database.service';
+import { DatabaseService } from '../database/database.service';
 import { ProcessingService } from './processing.service';
 import { ProcessingQueue } from './processing-queue';
 import { InferenceClient } from './inference-client';
@@ -22,7 +22,7 @@ import type { DurableObjectStorage } from '../object-storage/object-storage.type
 
 const describeDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
 describeDb('Processing: real PostgreSQL and gRPC', () => {
-  let db: RequestDatabase;
+  let db: DatabaseService;
   let grpc: Server;
   let inference: InferenceClient;
   let service: ProcessingService;
@@ -101,7 +101,7 @@ describeDb('Processing: real PostgreSQL and gRPC', () => {
       DATABASE_URL: process.env.TEST_DATABASE_URL,
       INFERENCE_GRPC_ADDRESS: `127.0.0.1:${port}`,
     });
-    db = new RequestDatabase(config);
+    db = new DatabaseService(config);
     await db.onModuleInit();
     inference = new InferenceClient(config);
     service = new ProcessingService(
@@ -135,7 +135,7 @@ describeDb('Processing: real PostgreSQL and gRPC', () => {
     try {
       return await db.transaction(client, async () => {
         await client.query(
-          "INSERT INTO requests(id,owner_id,status,closed_at,audio_stored,audio_key) VALUES($1,'technical-user','processing',now(),true,$2)",
+          "INSERT INTO requests(id,owner_id,status,closed_at,audio_stored,audio_key) VALUES($1,'00000000-0000-4000-8000-000000000001','processing',now(),true,$2)",
           [requestId, key],
         );
         await client.query(

@@ -7,20 +7,19 @@ import type { PoolClient } from 'pg';
 import { OBJECT_STORAGE } from '../object-storage/object-storage.types';
 import type { DurableObjectStorage } from '../object-storage/object-storage.types';
 import { RecordingAudioEncoderService } from '../recording-audio-encoder.service';
-import { RequestDatabase } from './request-database.service';
+import { DatabaseService } from '../database/database.service';
 import { AudioUploadService, fileHash } from './audio-upload.service';
 import type { ReceivedAudio } from './audio-upload.service';
 import { isClosed, RequestError } from './request.types';
 import type { RequestRow, ApiError } from './request.types';
 import { ProcessingService } from '../processing/processing.service';
 
-const OWNER = 'technical-user';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 @Injectable()
 export class RequestsService {
   private readonly logger = new Logger(RequestsService.name);
   constructor(
-    private readonly db: RequestDatabase,
+    private readonly db: DatabaseService,
     private readonly uploads: AudioUploadService,
     private readonly encoder: RecordingAudioEncoderService,
     @Inject(OBJECT_STORAGE) private readonly storage: DurableObjectStorage,
@@ -30,18 +29,18 @@ export class RequestsService {
     if (!uuid.test(id))
       throw new RequestError(400, 'INVALID_REQUEST_ID', 'Invalid request ID');
   }
-  async create() {
+  async create(ownerId: string) {
     const client = await this.db.pool.connect();
     try {
       return await this.db.transaction(client, async () => {
         const result = await client.query<RequestRow>(
           "INSERT INTO requests(id,owner_id,status) VALUES($1,$2,'created') ON CONFLICT DO NOTHING RETURNING *",
-          [randomUUID(), OWNER],
+          [randomUUID(), ownerId],
         );
         if (!result.rows[0]) {
           const active = await client.query<RequestRow>(
             'SELECT * FROM requests WHERE owner_id=$1 AND closed_at IS NULL',
-            [OWNER],
+            [ownerId],
           );
           if (!active.rows[0]) throw this.unknown();
           throw new RequestError(
@@ -60,7 +59,7 @@ export class RequestsService {
       client.release();
     }
   }
-  async list(limitValue?: string, cursor?: string) {
+  async list(ownerId: string, limitValue?: string, cursor?: string) {
     const limit = limitValue === undefined ? 20 : Number(limitValue);
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
       throw new RequestError(
@@ -90,8 +89,8 @@ export class RequestsService {
     >(
       `SELECT *, created_at::text AS cursor_time FROM requests WHERE owner_id=$1 ${after ? 'AND (created_at,id) < ($3::timestamptz,$4::uuid)' : ''} ORDER BY created_at DESC,id DESC LIMIT $2`,
       after
-        ? [OWNER, limit + 1, after.createdAt, after.requestId]
-        : [OWNER, limit + 1],
+        ? [ownerId, limit + 1, after.createdAt, after.requestId]
+        : [ownerId, limit + 1],
     );
     const rows = result.rows.slice(0, limit);
     const last = rows.at(-1);
@@ -112,8 +111,8 @@ export class RequestsService {
           : null,
     };
   }
-  async get(id: string) {
-    const row = await this.row(id);
+  async get(ownerId: string, id: string) {
+    const row = await this.row(ownerId, id);
     const commands = await this.processing.history(id);
     if (!row.fingerprint || row.audio_stored)
       return { ...this.view(row), commands };
@@ -125,8 +124,8 @@ export class RequestsService {
     }
     return { ...this.view(row, stored), commands };
   }
-  async retryProcessing(id: string, body: unknown) {
-    await this.row(id);
+  async retryProcessing(ownerId: string, id: string, body: unknown) {
+    await this.row(ownerId, id);
     if (
       !body ||
       typeof body !== 'object' ||
@@ -140,11 +139,11 @@ export class RequestsService {
         'Expected commandId of the previous attempt',
       );
     await this.processing.retry(id, body.commandId);
-    return this.get(id);
+    return this.get(ownerId, id);
   }
-  async complete(id: string, audio?: ReceivedAudio) {
+  async complete(ownerId: string, id: string, audio?: ReceivedAudio) {
     try {
-      return await this.locked(id, async (client, row) => {
+      return await this.locked(ownerId, id, async (client, row) => {
         if (audio && row.fingerprint && audio.fingerprint !== row.fingerprint)
           throw new RequestError(
             409,
@@ -234,7 +233,7 @@ export class RequestsService {
           // A commit may have succeeded despite losing its response. Resolve through a fresh DB connection.
           let current: RequestRow;
           try {
-            current = await this.row(id);
+            current = await this.row(ownerId, id);
           } catch {
             throw this.unknown(id);
           }
@@ -292,7 +291,7 @@ export class RequestsService {
         );
     }
   }
-  async abandon(id: string, reason?: string) {
+  async abandon(ownerId: string, id: string, reason?: string) {
     if (
       reason !== undefined &&
       (typeof reason !== 'string' || reason.length > 1000)
@@ -302,7 +301,7 @@ export class RequestsService {
         'INVALID_REASON',
         'Reason must contain at most 1000 characters',
       );
-    return this.locked(id, async (client, row) => {
+    return this.locked(ownerId, id, async (client, row) => {
       if (row.status === 'abandoned')
         return { httpStatus: 200, body: this.view(row) };
       if (isClosed(row))
@@ -324,8 +323,8 @@ export class RequestsService {
       return { httpStatus: 200, body: this.view(result) };
     });
   }
-  async report(id: string) {
-    const row = await this.row(id);
+  async report(ownerId: string, id: string) {
+    const row = await this.row(ownerId, id);
     if (row.status === 'processing_failed')
       throw new RequestError(
         409,
@@ -413,6 +412,7 @@ export class RequestsService {
     return true;
   }
   private async locked<T>(
+    ownerId: string,
     id: string,
     work: (client: PoolClient, row: RequestRow) => Promise<T>,
   ): Promise<
@@ -433,7 +433,7 @@ export class RequestsService {
           [`request:${id}`],
         )
       ).rows[0].acquired;
-      const row = await this.row(id, client);
+      const row = await this.row(ownerId, id, client);
       if (!acquired) return { httpStatus: 202, body: this.view(row) };
       return await work(client, row);
     } finally {
@@ -449,11 +449,15 @@ export class RequestsService {
       client.release(broken);
     }
   }
-  private async row(id: string, client?: PoolClient): Promise<RequestRow> {
+  private async row(
+    ownerId: string,
+    id: string,
+    client?: PoolClient,
+  ): Promise<RequestRow> {
     this.validateId(id);
     const result = await (client ?? this.db.pool).query<RequestRow>(
       'SELECT * FROM requests WHERE id=$1 AND owner_id=$2',
-      [id, OWNER],
+      [id, ownerId],
     );
     if (!result.rows[0])
       throw new RequestError(

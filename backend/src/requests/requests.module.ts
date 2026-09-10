@@ -5,8 +5,9 @@ import { AudioUploadService } from './audio-upload.service';
 import { RequestsService } from './requests.service';
 import { RequestsController } from './requests.controller';
 import { ProcessingModule } from '../processing/processing.module';
+import { AuthModule } from '../auth/auth.module';
 @Module({
-  imports: [ObjectStorageModule, ProcessingModule],
+  imports: [ObjectStorageModule, ProcessingModule, AuthModule],
   controllers: [RequestsController],
   providers: [
     AudioUploadService,

@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
-import { RequestDatabase } from '../requests/request-database.service';
+import { DatabaseService } from '../database/database.service';
 import { RequestError } from '../requests/request.types';
 import { OBJECT_STORAGE } from '../object-storage/object-storage.types';
 import type { DurableObjectStorage } from '../object-storage/object-storage.types';
@@ -15,7 +15,7 @@ import type { CommandRow, ProcessSnapshot } from './processing.types';
 export class ProcessingService {
   private readonly logger = new Logger(ProcessingService.name);
   constructor(
-    private readonly db: RequestDatabase,
+    private readonly db: DatabaseService,
     private readonly config: ConfigService,
     private readonly inference: InferenceClient,
     private readonly queue: ProcessingQueue,
