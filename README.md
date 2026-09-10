@@ -77,7 +77,8 @@ Dev server доступен на http://localhost:5173 и проксирует �
 Frontend не зависит от Nginx и не содержит его конфигурацию. В production-like
 локальном запуске одноразовый сервис `frontend-assets` копирует `dist` в Docker
 volume, а отдельный Nginx из `../local-stack/nginx/nginx.conf` раздаёт этот
-volume и проксирует `/api`.
+volume и проксирует `/api`. Карта React-модулей и подсказки по месту изменений:
+[frontend/README.md](frontend/README.md).
 
 ### Запуск worker
 
@@ -211,7 +212,7 @@ TEST_DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/overtone_test npm ru
 TEST_FFMPEG=ffmpeg TEST_FFPROBE=ffprobe npm test -- --runInBand
 ```
 
-Без `TEST_DATABASE_URL` SQL-интеграционные тесты пропускаются. Они проверяют реальную PostgreSQL с тестовым S3-адаптером; браузерные проверки используют настоящий MediaRecorder и тестовые HTTP-ответы. Отдельный тест проверяет настоящий FFmpeg. Полный Docker/MinIO/GPU smoke нужен перед развёртыванием.
+Без `TEST_DATABASE_URL` SQL-интеграционные тесты пропускаются. Они проверяют реальную PostgreSQL с тестовым S3-адаптером; браузерные проверки используют настоящий MediaRecorder и тестовые HTTP-ответы. Отдельный тест проверяет настоящий FFmpeg. Изолированный smoke `React → Nginx → API` запускается командой `make smoke-overtone` из `../local-stack`; проверка реального MinIO/GPU всё ещё нужна перед развёртыванием.
 
 Frontend-библиотеки, включая Markdown renderer и HTML sanitizer, закреплены в
 `frontend/package-lock.json` и включаются Vite в production bundle.

@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "test:stack": "playwright test --config playwright.stack.config.ts"
   },
   "dependencies": {
     "dompurify": "^3.3.0",
