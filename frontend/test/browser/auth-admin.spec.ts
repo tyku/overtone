@@ -101,6 +101,11 @@ test('shows a generated password once and only its date after returning', async 
   await emptyRequests(page);
 
   await page.goto('/admin');
+  await expect(page.getByRole('heading', { name: 'Организации' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Пользователи' })).toHaveCount(0);
+  await page.getByRole('tab', { name: /Пользователи/ }).click();
+  await expect(page).toHaveURL(/\/admin\?section=users$/);
+  await expect(page.getByRole('heading', { name: 'Пользователи' })).toBeVisible();
   await page.getByLabel('Почта').fill('doctor@example.com');
   await page.getByLabel('Клиника').first().selectOption(clinic.id);
   await page.getByRole('button', { name: 'Создать пользователя' }).click();
@@ -109,6 +114,7 @@ test('shows a generated password once and only its date after returning', async 
   await page.getByRole('link', { name: 'Профиль' }).click();
   await page.getByRole('link', { name: 'Админка' }).click();
   await expect(page.getByText('OneTime-Password-42')).toHaveCount(0);
+  await page.getByRole('tab', { name: /Пользователи/ }).click();
   await expect(page.getByText('doctor@example.com')).toBeVisible();
   await expect(page.getByText('Пароль создан')).toBeVisible();
 });

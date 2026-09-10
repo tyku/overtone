@@ -333,7 +333,50 @@ input:disabled {
   margin: 0;
   color: #b9a99a;
 }
+.admin-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  padding: 6px;
+  border: 1px solid #d88a3b33;
+  border-radius: 14px;
+  background: #111a28;
+}
+.admin-tabs button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex: 1;
+  min-height: 48px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #9dafc4;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.admin-tabs button:hover {
+  color: #f1dcc8;
+  background: #d88a3b12;
+}
+.admin-tabs button.is-active {
+  border-color: #d88a3b66;
+  background: #3a291c;
+  color: #ffd7ad;
+  box-shadow: 0 4px 16px #0003;
+}
+.admin-tabs small {
+  min-width: 24px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #ffffff12;
+  color: inherit;
+  font-size: 0.72rem;
+}
 .admin-page .admin-section {
+  margin-top: 0;
   padding: 28px;
   border: 1px solid #d88a3b33;
   border-radius: 18px;
