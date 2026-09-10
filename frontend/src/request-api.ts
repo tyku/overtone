@@ -1,7 +1,12 @@
 import type { AudioPart, Report, RequestPage, RequestRow, RetryAction } from './types';
+import {
+  apiCall,
+  ApiClientError,
+  API_VERSION,
+  API_VERSION_HEADER,
+} from './shared/api-client';
 
-export const API_VERSION_HEADER = 'X-Overtone-API-Version';
-export const API_VERSION = '1';
+export { API_VERSION, API_VERSION_HEADER };
 
 export class ApiFailure extends Error {
   readonly code: string;
@@ -22,62 +27,32 @@ export class ApiFailure extends Error {
   }
 }
 
-interface ErrorEnvelope {
-  requestId?: string;
-  error?: {
-    code?: string;
-    message?: string;
-    retryAction?: RetryAction;
-  };
-}
-
 export class RequestApi {
   private async call<T>(path: string, options: RequestInit = {}): Promise<T & { httpStatus: number }> {
-    let response: Response;
     try {
-      const headers = new Headers(options.headers);
-      headers.set(API_VERSION_HEADER, API_VERSION);
-      response = await fetch(`/api/requests${path}`, {
-        ...options,
-        headers,
-        signal: AbortSignal.timeout(
-          options.body instanceof FormData ? 35 * 60 * 1000 : 15_000,
-        ),
-      });
-    } catch {
+      return await apiCall<T>(
+        `/api/requests${path}`,
+        options,
+        options.body instanceof FormData ? 35 * 60 * 1000 : 15_000,
+      );
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        throw new ApiFailure(
+          error.code === 'NETWORK_ERROR'
+            ? 'Не удалось получить ответ сервера. Проверим состояние приёма.'
+            : error.message,
+          error.code === 'NETWORK_ERROR' ? 'REQUEST_STATE_UNKNOWN' : error.code,
+          (error.details.error?.retryAction as RetryAction | undefined) ??
+            (error.code === 'NETWORK_ERROR' ? 'check_status' : 'none'),
+          error.details.requestId,
+        );
+      }
       throw new ApiFailure(
         'Не удалось получить ответ сервера. Проверим состояние приёма.',
         'REQUEST_STATE_UNKNOWN',
         'check_status',
       );
     }
-
-    const responseVersion = response.headers.get(API_VERSION_HEADER);
-    if (responseVersion !== API_VERSION) {
-      throw new ApiFailure(
-        `Frontend ожидает API v${API_VERSION}, сервер вернул ${responseVersion ? `v${responseVersion}` : 'ответ без версии'}`,
-        'API_VERSION_UNSUPPORTED',
-      );
-    }
-
-    const body = (await response.json().catch(() => null)) as T | ErrorEnvelope | null;
-    if (!response.ok) {
-      const envelope = body as ErrorEnvelope | null;
-      throw new ApiFailure(
-        envelope?.error?.message ?? 'Сервер временно недоступен',
-        envelope?.error?.code ?? 'REQUEST_STATE_UNKNOWN',
-        envelope?.error?.retryAction ?? 'check_status',
-        envelope?.requestId,
-      );
-    }
-    if (!body) {
-      throw new ApiFailure(
-        'Сервер вернул неполный ответ',
-        'REQUEST_STATE_UNKNOWN',
-        'check_status',
-      );
-    }
-    return { ...(body as T), httpStatus: response.status };
   }
 
   create(): Promise<RequestRow> {

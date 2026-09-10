@@ -6,6 +6,7 @@ import { errorMessage } from '../shared/errors';
 import { formatDate } from '../shared/format';
 import { requestStatusLabels } from '../shared/request-status';
 import type { LegacyRecording, RequestRow } from '../types';
+import { AppLink, navigate } from '../app/router';
 
 interface HistoryPageProps {
   setNotice: (message: string) => void;
@@ -45,11 +46,11 @@ export function HistoryPage({ setNotice }: HistoryPageProps) {
       await requestStore.database();
       const value = await requestApi.create();
       await requestStore.remember(value);
-      location.hash = `/requests/${value.requestId}`;
+      navigate(`/requests/${value.requestId}`);
     } catch (error) {
       if (error instanceof ApiFailure && error.code === 'ACTIVE_REQUEST_EXISTS') {
         setNotice('Сначала завершите текущий приём.');
-        if (error.requestId) location.hash = `/requests/${error.requestId}`;
+        if (error.requestId) navigate(`/requests/${error.requestId}`);
       } else {
         setNotice(errorMessage(error));
       }
@@ -92,11 +93,11 @@ export function HistoryPage({ setNotice }: HistoryPageProps) {
       </p>
       <div id="requestList" className="request-list">
         {items.map((row) => (
-          <a key={row.requestId} href={`#/requests/${row.requestId}`} className="request-card">
+          <AppLink key={row.requestId} href={`/requests/${row.requestId}`} className="request-card">
             <strong>{formatDate(row.createdAt)}</strong>
             <span className="badge">{requestStatusLabels[row.status] ?? row.status}</span>
             <span className="open-label">Открыть →</span>
-          </a>
+          </AppLink>
         ))}
       </div>
       {cursor && (

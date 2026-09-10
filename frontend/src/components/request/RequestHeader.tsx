@@ -1,5 +1,6 @@
 import { formatDate } from '../../shared/format';
 import type { RequestRow } from '../../types';
+import { AppLink } from '../../app/router';
 
 interface RequestHeaderProps {
   requestId: string;
@@ -16,7 +17,7 @@ export function RequestHeader({
 }: RequestHeaderProps) {
   return (
     <>
-      <a href="#/requests" className="back">← Все приёмы</a>
+      <AppLink href="/requests" className="back">← Все приёмы</AppLink>
       <div className="page-heading">
         <div>
           <p id="requestDate" className="eyebrow">

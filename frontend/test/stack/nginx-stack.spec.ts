@@ -19,7 +19,7 @@ test('Nginx serves the SPA and proxies API polling through to a completed report
   expect(nestedRoute?.ok()).toBe(true);
   await expect(page.getByRole('link', { name: 'Overtone' })).toBeVisible();
 
-  await page.goto(`/#/requests/${requestId}`);
+  await page.goto(`/requests/${requestId}`);
   await expect(page.locator('#waitingPanel')).toBeVisible();
   await expect(page.locator('#reportContent h1')).toHaveText('Smoke report', {
     timeout: 10_000,

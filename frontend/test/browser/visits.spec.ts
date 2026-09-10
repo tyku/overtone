@@ -28,6 +28,25 @@ async function fixture(page: Page) {
     rows: [] as RequestRow[],
     reads: 0,
   };
+  await page.route('**/api/auth/session', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { 'X-Overtone-API-Version': '1' },
+      body: JSON.stringify({
+        user: {
+          id: '11111111-1111-4111-8111-111111111111',
+          clinicId: '22222222-2222-4222-8222-222222222222',
+          clinicName: 'Test clinic',
+          email: 'doctor@example.com',
+          fullName: null,
+          position: null,
+          specialization: null,
+          permissions: ['requests:use'],
+        },
+      }),
+    });
+  });
   await page.route('**/api/requests**', async (route) => {
     const req = route.request();
     const url = new URL(req.url());
@@ -221,7 +240,7 @@ test('processing failure retries the current command and returns to waiting', as
   state.row.error = { code: 'PROCESSING_FAILED', message: 'GPU failed' };
   state.row.commands = [{ commandId, status: 'failed' }];
   state.rows = [state.row];
-  await page.goto(`/#/requests/${id}`);
+  await page.goto(`/requests/${id}`);
   await expect(page.locator('#failedPanel')).toBeVisible();
   await page.getByRole('button', { name: 'Повторить обработку' }).click();
   await expect(page.locator('#waitingPanel')).toBeVisible();
@@ -236,7 +255,7 @@ test('processing status keeps polling until the server reaches a terminal state'
   state.row.audioStored = true;
   state.rows = [state.row];
 
-  await page.goto(`/#/requests/${id}`);
+  await page.goto(`/requests/${id}`);
   await expect(page.locator('#waitingPanel')).toBeVisible();
   await expect.poll(() => state.reads, { timeout: 7000 }).toBeGreaterThanOrEqual(3);
 
