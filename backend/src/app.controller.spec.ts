@@ -16,7 +16,10 @@ describe('AppController', () => {
 
   describe('health', () => {
     it('returns the service status', () => {
-      expect(appController.health()).toEqual({ status: 'ok' });
+      expect(appController.health()).toEqual({
+        status: 'ok',
+        version: process.env.APP_VERSION ?? 'dev',
+      });
     });
   });
 });

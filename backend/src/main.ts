@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
+import { apiVersionMiddleware } from './api-version.middleware';
 
 function logLevelsForEnvironment(nodeEnv: string): LogLevel[] {
   return nodeEnv === 'development'
@@ -13,6 +14,7 @@ function logLevelsForEnvironment(nodeEnv: string): LogLevel[] {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.enableShutdownHooks();
+  app.use('/api', apiVersionMiddleware);
   const config = app.get(ConfigService);
   const nodeEnv = config.get<string>('NODE_ENV', 'development');
   const logLevels = logLevelsForEnvironment(nodeEnv);

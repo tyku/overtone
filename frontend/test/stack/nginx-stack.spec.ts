@@ -8,7 +8,12 @@ test('Nginx serves the SPA and proxies API polling through to a completed report
 }) => {
   const health = await request.get('/api/health');
   expect(health.ok()).toBe(true);
-  await expect(health.json()).resolves.toEqual({ status: 'ok' });
+  expect(health.headers()['x-overtone-api-version']).toBe('1');
+  expect(health.headers()['x-overtone-supported-api-versions']).toBe('1');
+  await expect(health.json()).resolves.toEqual({
+    status: 'ok',
+    version: 'smoke',
+  });
 
   const nestedRoute = await page.goto('/some/nested/route');
   expect(nestedRoute?.ok()).toBe(true);
@@ -22,6 +27,13 @@ test('Nginx serves the SPA and proxies API polling through to a completed report
 });
 
 test('Nginx applies cache policy and the API port does not serve frontend', async ({ request }) => {
+  const version = await request.get('/version.json');
+  expect(version.ok()).toBe(true);
+  expect(version.headers()['cache-control']).toContain('no-cache');
+  await expect(version.json()).resolves.toEqual({
+    version: 'smoke',
+  });
+
   const index = await request.get('/index.html');
   expect(index.ok()).toBe(true);
   expect(index.headers()['cache-control']).toContain('no-cache');

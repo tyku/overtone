@@ -7,6 +7,9 @@ export class AppController {
   @Get('health')
   health() {
     this.logger.log('Health check requested');
-    return { status: 'ok' };
+    return {
+      status: 'ok',
+      version: process.env.APP_VERSION ?? 'dev',
+    };
   }
 }

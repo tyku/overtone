@@ -5,54 +5,182 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      component:
+        description: Component to build and deploy
+        type: choice
+        options: [both, backend, frontend]
+        default: both
+
+concurrency:
+  group: overtone-production
+  cancel-in-progress: false
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select changed components
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+          SELECTED_COMPONENT: ${{ inputs.component }}
+        run: |
+          backend=false
+          frontend=false
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            case "$SELECTED_COMPONENT" in
+              both) backend=true; frontend=true ;;
+              backend) backend=true ;;
+              frontend) frontend=true ;;
+            esac
+          elif [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE_SHA^{commit}"; then
+            backend=true
+            frontend=true
+          else
+            changed="$(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")"
+            if printf '%s\n' "$changed" | grep -qE '^(backend/|\.github/workflows/deploy\.yml$)'; then backend=true; fi
+            if printf '%s\n' "$changed" | grep -qE '^(frontend/|\.github/workflows/deploy\.yml$)'; then frontend=true; fi
+          fi
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"
+          echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
+
+  verify-backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Check backend
+        working-directory: backend
+        run: |
+          npm ci
+          npm run build
+          npm test -- --runInBand
+
+  verify-frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Check frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Install browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Check frontend in browser
+        working-directory: frontend
+        run: npm run test:browser
+
   build-backend:
+    needs: verify-backend
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Log in to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-
       - name: Build and push backend image
+        env:
+          IMAGE_REPOSITORY: ${{ secrets.DOCKER_USERNAME }}/overtone-backend
+          VERSION: ${{ github.sha }}
         run: |
-          IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/overtone-backend:latest
-          docker build -t $IMAGE_NAME --target backend backend
-          docker push $IMAGE_NAME
+          docker build --build-arg APP_VERSION="$VERSION" \
+            --tag "$IMAGE_REPOSITORY:$VERSION" --tag "$IMAGE_REPOSITORY:latest" \
+            --target backend backend
+          docker push "$IMAGE_REPOSITORY:$VERSION"
+          docker push "$IMAGE_REPOSITORY:latest"
 
-  build-frontend-assets:
+  build-frontend:
+    needs: verify-frontend
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Log in to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-
       - name: Build and push frontend image
+        env:
+          IMAGE_REPOSITORY: ${{ secrets.DOCKER_USERNAME }}/overtone-frontend-assets
+          VERSION: ${{ github.sha }}
         run: |
-          IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/overtone-frontend-assets:latest
-          docker build -t $IMAGE_NAME --target artifacts frontend
-          docker push $IMAGE_NAME
+          docker build --build-arg APP_VERSION="$VERSION" \
+            --tag "$IMAGE_REPOSITORY:$VERSION" --tag "$IMAGE_REPOSITORY:latest" \
+            --target artifacts frontend
+          docker push "$IMAGE_REPOSITORY:$VERSION"
+          docker push "$IMAGE_REPOSITORY:latest"
 
-  deploy:
-    needs: [build-backend, build-frontend-assets]
+  deploy-backend:
+    needs: build-backend
     runs-on: ubuntu-latest
-
     steps:
-      - name: Restart Docker Compose on server
+      - name: Deploy backend only
         uses: appleboy/ssh-action@v1.1.0
+        env:
+          IMAGE: ${{ secrets.DOCKER_USERNAME }}/overtone-backend:${{ github.sha }}
+          VERSION: ${{ github.sha }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: IMAGE,VERSION,DOCKER_USERNAME,DOCKER_PASSWORD
           script: |
-            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+            set -eu
+            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
             cd /home/deployer/app/overtone
-            docker compose pull
-            docker compose up -d
-            docker system prune -af
+            docker pull "$IMAGE"
+            test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")" = "$VERSION"
+            OVERTONE_BACKEND_IMAGE="$IMAGE" docker compose up --detach --no-build --no-deps --wait api worker
+            docker compose exec -T nginx nginx -s reload
+            docker compose exec -T nginx sh /usr/local/bin/overtone-healthcheck
+
+  deploy-frontend:
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy frontend only
+        uses: appleboy/ssh-action@v1.1.0
+        env:
+          IMAGE: ${{ secrets.DOCKER_USERNAME }}/overtone-frontend-assets:${{ github.sha }}
+          VERSION: ${{ github.sha }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: IMAGE,VERSION,DOCKER_USERNAME,DOCKER_PASSWORD
+          script: |
+            set -eu
+            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+            cd /home/deployer/app/overtone
+            docker pull "$IMAGE"
+            test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")" = "$VERSION"
+            OVERTONE_FRONTEND_IMAGE="$IMAGE" docker compose run --rm --no-deps frontend-assets
+            docker compose exec -T nginx sh /usr/local/bin/overtone-healthcheck

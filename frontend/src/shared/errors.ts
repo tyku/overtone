@@ -9,6 +9,8 @@ const messages: Record<string, string> = {
   REQUEST_STATE_UNKNOWN: 'Нет достоверного ответа сервера. Запись сохранена; проверяем состояние.',
   AUDIO_CONTENT_CONFLICT:
     'Содержимое записи отличается от ранее отправленного. Изменять завершённую запись нельзя.',
+  API_VERSION_UNSUPPORTED:
+    'Версии приложения и API несовместимы. Обновите страницу или обратитесь к администратору.',
 };
 
 export function errorMessage(error: unknown): string {

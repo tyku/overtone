@@ -87,6 +87,7 @@ async function fixture(page: Page) {
     await route.fulfill({
       status,
       contentType: 'application/json',
+      headers: { 'X-Overtone-API-Version': '1' },
       body: JSON.stringify(body),
     });
   });
@@ -158,10 +159,6 @@ test('stop preserves audio; finish sends both parts once and waits without a 30s
   const downloading = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Скачать .md' }).click();
   expect((await downloading).suggestedFilename()).toContain('.md');
-  await page.screenshot({
-    path: '/private/tmp/overtone-api-tests/report-desktop.png',
-    fullPage: true,
-  });
 });
 test('failed finalization survives reload and retries without audio after S3 confirmation', async ({
   page,
@@ -214,10 +211,6 @@ test('force-close is explicit, keeps metadata and returns to the history on mobi
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await page.screenshot({
-    path: '/private/tmp/overtone-api-tests/history-mobile.png',
-    fullPage: true,
-  });
 });
 test('processing failure retries the current command and returns to waiting', async ({
   page,

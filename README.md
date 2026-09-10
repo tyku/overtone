@@ -74,11 +74,23 @@ Dev server доступен на http://localhost:5173 и проксирует �
 `/api` в backend на `http://127.0.0.1:3000`. Production build создаётся командой
 `npm run build` в каталоге `frontend/dist`.
 
+Из общего `../local-stack` тот же dev-режим запускается командой
+`make frontend-dev`: Compose поднимает API и его инфраструктурные зависимости,
+а Vite остаётся процессом на хосте с hot reload.
+
 Frontend не зависит от Nginx и не содержит его конфигурацию. В production-like
 локальном запуске одноразовый сервис `frontend-assets` копирует `dist` в Docker
 volume, а отдельный Nginx из `../local-stack/nginx/nginx.conf` раздаёт этот
 volume и проксирует `/api`. Карта React-модулей и подсказки по месту изменений:
 [frontend/README.md](frontend/README.md).
+
+Backend и frontend публикуются и развёртываются независимо. Git SHA используется
+только как immutable tag конкретного образа и не обязан совпадать между
+компонентами. Совместимость задаётся HTTP-контрактом: frontend отправляет
+`X-Overtone-API-Version`, backend подтверждает эту версию тем же response header
+и возвращает `412 API_VERSION_UNSUPPORTED` для неподдерживаемой версии.
+Frontend сначала добавляет новые hashed assets, а затем атомарно заменяет
+`index.html`; assets предыдущих версий хранятся 7 дней.
 
 ### Запуск worker
 
@@ -121,6 +133,12 @@ Docker-адреса PostgreSQL, Redis, S3 и inference задаются общи
 Текущий `mock` medical-scribe имитирует Speech Core/roles, но его FullPipeline требует загруженных моделей: без них он завершится `MODEL_LOAD_FAILED`. Для сквозных тестов используется отдельный fixture из `backend/test/fixtures/`, который не включён в приложение. Для GPU используйте `make up-gpu` в `../local-stack/`.
 
 ## HTTP-контракт
+
+Каждый клиентский запрос передаёт заголовок `X-Overtone-API-Version: 1`.
+Backend возвращает его во всех `/api/*` ответах. Заголовок с другой версией
+получает `412 API_VERSION_UNSUPPORTED`; отсутствие request header допускается
+для health-check и ручной диагностики. Правила совместимых и breaking-изменений:
+[API_VERSIONING.md](API_VERSIONING.md).
 
 | Метод | Путь | Назначение |
 |---|---|---|

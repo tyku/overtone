@@ -1,5 +1,8 @@
 import type { AudioPart, Report, RequestPage, RequestRow, RetryAction } from './types';
 
+export const API_VERSION_HEADER = 'X-Overtone-API-Version';
+export const API_VERSION = '1';
+
 export class ApiFailure extends Error {
   readonly code: string;
   readonly retryAction: RetryAction;
@@ -32,8 +35,11 @@ export class RequestApi {
   private async call<T>(path: string, options: RequestInit = {}): Promise<T & { httpStatus: number }> {
     let response: Response;
     try {
+      const headers = new Headers(options.headers);
+      headers.set(API_VERSION_HEADER, API_VERSION);
       response = await fetch(`/api/requests${path}`, {
         ...options,
+        headers,
         signal: AbortSignal.timeout(
           options.body instanceof FormData ? 35 * 60 * 1000 : 15_000,
         ),
@@ -43,6 +49,14 @@ export class RequestApi {
         'Не удалось получить ответ сервера. Проверим состояние приёма.',
         'REQUEST_STATE_UNKNOWN',
         'check_status',
+      );
+    }
+
+    const responseVersion = response.headers.get(API_VERSION_HEADER);
+    if (responseVersion !== API_VERSION) {
+      throw new ApiFailure(
+        `Frontend ожидает API v${API_VERSION}, сервер вернул ${responseVersion ? `v${responseVersion}` : 'ответ без версии'}`,
+        'API_VERSION_UNSUPPORTED',
       );
     }
 
