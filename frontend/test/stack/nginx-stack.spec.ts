@@ -27,6 +27,9 @@ test('Nginx serves the SPA and proxies API polling through to a completed report
 });
 
 test('Nginx applies cache policy and the API port does not serve frontend', async ({ request }) => {
+  expect((await request.get('/admin')).status()).toBe(200);
+  expect((await request.get('/admin/dss')).status()).toBe(404);
+
   const version = await request.get('/version.json');
   expect(version.ok()).toBe(true);
   expect(version.headers()['cache-control']).toContain('no-cache');
