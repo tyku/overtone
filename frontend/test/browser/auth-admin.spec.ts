@@ -72,7 +72,8 @@ test('clearly marks the dedicated administrator login', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Войти в админку' })).toBeVisible();
 });
 
-test('shows a generated password once and only its date after returning', async ({ page }) => {
+test('shows a generated password once and only its date after returning', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const users: Array<Record<string, unknown>> = [];
   await page.route('**/api/auth/session', (route) => json(route, 200, { user: admin }));
   await page.route('**/api/admin/clinics', async (route) => {
@@ -111,6 +112,8 @@ test('shows a generated password once and only its date after returning', async 
   await page.getByRole('button', { name: 'Создать пользователя' }).click();
 
   await expect(page.getByText('OneTime-Password-42')).toBeVisible();
+  await page.getByRole('button', { name: 'Скопировать пароль' }).click();
+  await expect(page.getByText('Пароль скопирован')).toBeVisible();
   await page.getByRole('link', { name: 'Профиль' }).click();
   await page.getByRole('link', { name: 'Админка' }).click();
   await expect(page.getByText('OneTime-Password-42')).toHaveCount(0);
