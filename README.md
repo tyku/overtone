@@ -37,7 +37,7 @@ make up                 # mock inference
 `BUILD_FLAGS="--no-cache --pull"`. Полный список команд находится в
 `../local-stack/README.md`.
 
-- Frontend через отдельный Nginx: http://localhost:8080
+- Frontend gateway: http://localhost:8080
 - API/health: http://localhost:3000/api/health
 - MinIO: http://localhost:9001
 - PostgreSQL: localhost:5432
@@ -94,19 +94,20 @@ Dev server доступен на http://localhost:5173 и проксирует �
 `make frontend-dev`: Compose поднимает API и его инфраструктурные зависимости,
 а Vite остаётся процессом на хосте с hot reload.
 
-Frontend не зависит от Nginx и не содержит его конфигурацию. В production-like
-локальном запуске одноразовый сервис `frontend-assets` копирует `dist` в Docker
-volume, а отдельный Nginx из `../local-stack/nginx/nginx.conf` раздаёт этот
-volume и проксирует `/api`. Карта React-модулей и подсказки по месту изменений:
-[frontend/README.md](frontend/README.md).
+Production-образ frontend самодостаточен: он содержит собранный `dist` и
+запускает непривилегированный Nginx static origin на порту `8080`. Общий volume
+для артефактов не нужен. Этот внутренний Nginx не проксирует `/api`, не
+терминирует TLS и не фильтрует `/admin`; внешний gateway направляет `/` в
+frontend, а `/api/*` непосредственно в backend. Карта React-модулей, runtime
+contract и команды проверки: [frontend/README.md](frontend/README.md).
 
 Backend и frontend публикуются и развёртываются независимо. Git SHA используется
 только как immutable tag конкретного образа и не обязан совпадать между
 компонентами. Совместимость задаётся HTTP-контрактом: frontend отправляет
 `X-Overtone-API-Version`, backend подтверждает эту версию тем же response header
 и возвращает `412 API_VERSION_UNSUPPORTED` для неподдерживаемой версии.
-Frontend сначала добавляет новые hashed assets, а затем атомарно заменяет
-`index.html`; assets предыдущих версий хранятся 7 дней.
+Каждая реплика frontend запускается из одного immutable image и не зависит от
+filesystem другой Swarm-ноды.
 
 ### Запуск worker
 
@@ -254,7 +255,7 @@ TEST_DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/overtone_test npm ru
 TEST_FFMPEG=ffmpeg TEST_FFPROBE=ffprobe npm test -- --runInBand
 ```
 
-Без `TEST_DATABASE_URL` SQL-интеграционные тесты пропускаются. Они проверяют реальную PostgreSQL с тестовым S3-адаптером; браузерные проверки используют настоящий MediaRecorder и тестовые HTTP-ответы. Отдельный тест проверяет настоящий FFmpeg. Изолированный smoke `React → Nginx → API` запускается командой `make smoke-overtone` из `../local-stack`; проверка реального MinIO/GPU всё ещё нужна перед развёртыванием.
+Без `TEST_DATABASE_URL` SQL-интеграционные тесты пропускаются. Они проверяют реальную PostgreSQL с тестовым S3-адаптером; браузерные проверки используют настоящий MediaRecorder и тестовые HTTP-ответы. Отдельный тест проверяет настоящий FFmpeg. Production static-origin image проверяется командой `npm run test:image` в `frontend/`; сквозная проверка внешнего gateway, реального MinIO и GPU всё ещё нужна перед развёртыванием.
 
 Frontend-библиотеки, включая Markdown renderer и HTML sanitizer, закреплены в
 `frontend/package-lock.json` и включаются Vite в production bundle.

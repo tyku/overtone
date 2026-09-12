@@ -1,55 +1,73 @@
 import { expect, test } from '@playwright/test';
 
-const requestId = '7aedb5e0-347d-4414-992a-89cb8c9600da';
+const expectedVersion = process.env.STACK_EXPECTED_VERSION ?? 'production-image-test';
+const spaRoutes = ['/', '/login', '/requests', '/profile', '/admin'];
 
-test('Nginx serves the SPA and proxies API polling through to a completed report', async ({
-  page,
-  request,
-}) => {
-  const health = await request.get('/api/health');
-  expect(health.ok()).toBe(true);
-  expect(health.headers()['x-overtone-api-version']).toBe('1');
-  expect(health.headers()['x-overtone-supported-api-versions']).toBe('1');
-  await expect(health.json()).resolves.toEqual({
-    status: 'ok',
-    version: 'smoke',
-  });
+test('static origin serves health and every public SPA entry route', async ({ request }) => {
+  const health = await request.get('/frontend-health');
+  expect(health.status()).toBe(200);
+  expect(await health.text()).toBe('ok\n');
+  expect(health.headers()['cache-control']).toContain('no-store');
 
-  const nestedRoute = await page.goto('/some/nested/route');
-  expect(nestedRoute?.ok()).toBe(true);
-  await expect(page.getByRole('link', { name: 'Overtone' })).toBeVisible();
-
-  await page.goto(`/requests/${requestId}`);
-  await expect(page.locator('#waitingPanel')).toBeVisible();
-  await expect(page.locator('#reportContent h1')).toHaveText('Smoke report', {
-    timeout: 10_000,
-  });
+  for (const route of spaRoutes) {
+    const response = await request.get(route);
+    expect(response.status(), route).toBe(200);
+    expect(await response.text(), route).toContain('<div id="root"></div>');
+    expect(response.headers()['cache-control'], route).toContain('no-store');
+  }
 });
 
-test('Nginx applies cache policy and the API port does not serve frontend', async ({ request }) => {
-  expect((await request.get('/admin')).status()).toBe(200);
-  expect((await request.get('/admin/dss')).status()).toBe(404);
+test('static origin supports HEAD', async ({ request }) => {
+  for (const route of ['/frontend-health', ...spaRoutes, '/version.json']) {
+    const response = await request.head(route);
+    expect(response.status(), route).toBe(200);
+    expect((await response.body()).byteLength, route).toBe(0);
+  }
+});
 
+test('version and entry document are never cached', async ({ request }) => {
   const version = await request.get('/version.json');
   expect(version.ok()).toBe(true);
-  expect(version.headers()['cache-control']).toContain('no-cache');
+  expect(version.headers()['cache-control']).toContain('no-store');
   await expect(version.json()).resolves.toEqual({
-    version: 'smoke',
+    version: expectedVersion,
   });
 
   const index = await request.get('/index.html');
   expect(index.ok()).toBe(true);
-  expect(index.headers()['cache-control']).toContain('no-cache');
+  expect(index.headers()['cache-control']).toContain('no-store');
+});
+
+test('fingerprinted Vite assets have a long immutable cache lifetime', async ({ request }) => {
+  const index = await request.get('/index.html');
   const html = await index.text();
-  const assetPath = html.match(/src="([^\"]*\/assets\/[^\"]+\.js)"/)?.[1];
+  const assetPath = html.match(/(?:src|href)="([^\"]*\/assets\/[^\"]+-[^\"]+\.(?:js|css))"/)?.[1];
   expect(assetPath).toBeTruthy();
 
   const asset = await request.get(assetPath!);
   expect(asset.ok()).toBe(true);
-  expect(asset.headers()['cache-control']).toContain('immutable');
+  expect(asset.headers()['cache-control']).toBe('public, max-age=31536000, immutable');
 
-  const apiBaseUrl = process.env.STACK_API_URL ?? 'http://127.0.0.1:18081';
-  const backendRoot = await request.get(`${apiBaseUrl}/`);
-  expect(backendRoot.status()).toBe(404);
-  expect(await backendRoot.text()).not.toContain('<div id="root"></div>');
+  const assetHead = await request.head(assetPath!);
+  expect(assetHead.status()).toBe(200);
+  expect((await assetHead.body()).byteLength).toBe(0);
+});
+
+test('missing files and API paths are not rewritten to the SPA', async ({ request }) => {
+  for (const path of ['/missing.js', '/nested/missing.css', '/api', '/api/health']) {
+    const response = await request.get(path);
+    expect(response.status(), path).toBe(404);
+    expect(await response.text(), path).not.toContain('<div id="root"></div>');
+  }
+});
+
+test('static responses carry baseline security headers', async ({ request }) => {
+  for (const path of ['/', '/version.json', '/assets/missing.js']) {
+    const response = await request.get(path);
+    expect(response.headers()['x-content-type-options'], path).toBe('nosniff');
+    expect(response.headers()['x-frame-options'], path).toBe('DENY');
+    expect(response.headers()['referrer-policy'], path).toBe(
+      'strict-origin-when-cross-origin',
+    );
+  }
 });
