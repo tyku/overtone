@@ -78,10 +78,10 @@ jobs:
       backend_version: ${{ steps.versions.outputs.backend_version }}
       gateway_version: ${{ steps.versions.outputs.gateway_version }}
       swarm_check_version: ${{ steps.versions.outputs.swarm_check_version }}
-      frontend_digest: ${{ steps.frontend.outputs.digest }}
-      backend_digest: ${{ steps.backend.outputs.digest }}
-      gateway_digest: ${{ steps.gateway.outputs.digest }}
-      swarm_check_digest: ${{ steps.swarm_check.outputs.digest }}
+      frontend_digest: ${{ steps.digests.outputs.frontend_digest }}
+      backend_digest: ${{ steps.digests.outputs.backend_digest }}
+      gateway_digest: ${{ steps.digests.outputs.gateway_digest }}
+      swarm_check_digest: ${{ steps.digests.outputs.swarm_check_digest }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -106,7 +106,43 @@ jobs:
           registry: docker.io
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: existing
+        name: Find already published component images
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          BACKEND_VERSION: ${{ steps.versions.outputs.backend_version }}
+          FRONTEND_VERSION: ${{ steps.versions.outputs.frontend_version }}
+          GATEWAY_VERSION: ${{ steps.versions.outputs.gateway_version }}
+          SWARM_CHECK_VERSION: ${{ steps.versions.outputs.swarm_check_version }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$DOCKERHUB_USERNAME" =~ ^[A-Za-z0-9_.-]+$ ]] || exit 1
+          for component in backend frontend gateway swarm_check; do
+            case "$component" in
+              backend) image_name=overtone-backend; version="$BACKEND_VERSION" ;;
+              frontend) image_name=overtone-frontend; version="$FRONTEND_VERSION" ;;
+              gateway) image_name=overtone-gateway; version="$GATEWAY_VERSION" ;;
+              swarm_check) image_name=overtone-swarm-check; version="$SWARM_CHECK_VERSION" ;;
+            esac
+            image="docker.io/${DOCKERHUB_USERNAME}/${image_name}:${version}"
+            if output=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$image" 2>&1); then
+              [[ "$output" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+                echo "Unexpected digest for $image" >&2
+                exit 1
+              }
+              echo "${component}_exists=true" >> "$GITHUB_OUTPUT"
+              echo "${component}_digest=$output" >> "$GITHUB_OUTPUT"
+              echo "Reusing $image@$output"
+            elif [[ "$output" == *"$image: not found"* || "$output" == *'manifest unknown'* ]]; then
+              echo "${component}_exists=false" >> "$GITHUB_OUTPUT"
+              echo "Building missing image: $image"
+            else
+              echo "Registry lookup failed for $image: $output" >&2
+              exit 1
+            fi
+          done
       - id: backend
+        if: steps.existing.outputs.backend_exists == 'false'
         uses: docker/build-push-action@v6
         with:
           context: overtone/backend
@@ -116,6 +152,7 @@ jobs:
           build-args: APP_VERSION=${{ steps.versions.outputs.backend_version }}
           tags: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-backend:${{ steps.versions.outputs.backend_version }}
       - id: frontend
+        if: steps.existing.outputs.frontend_exists == 'false'
         uses: docker/build-push-action@v6
         with:
           context: overtone/frontend
@@ -124,6 +161,7 @@ jobs:
           build-args: APP_VERSION=${{ steps.versions.outputs.frontend_version }}
           tags: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-frontend:${{ steps.versions.outputs.frontend_version }}
       - id: gateway
+        if: steps.existing.outputs.gateway_exists == 'false'
         uses: docker/build-push-action@v6
         with:
           context: infra
@@ -132,6 +170,7 @@ jobs:
           build-args: APP_VERSION=${{ steps.versions.outputs.gateway_version }}
           tags: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-gateway:${{ steps.versions.outputs.gateway_version }}
       - id: swarm_check
+        if: steps.existing.outputs.swarm_check_exists == 'false'
         uses: docker/build-push-action@v6
         with:
           context: infra
@@ -139,6 +178,40 @@ jobs:
           push: true
           build-args: APP_VERSION=${{ steps.versions.outputs.swarm_check_version }}
           tags: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-swarm-check:${{ steps.versions.outputs.swarm_check_version }}
+      - id: digests
+        name: Resolve release image digests
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          BACKEND_VERSION: ${{ steps.versions.outputs.backend_version }}
+          FRONTEND_VERSION: ${{ steps.versions.outputs.frontend_version }}
+          GATEWAY_VERSION: ${{ steps.versions.outputs.gateway_version }}
+          SWARM_CHECK_VERSION: ${{ steps.versions.outputs.swarm_check_version }}
+          BACKEND_EXPECTED_DIGEST: ${{ steps.backend.outputs.digest || steps.existing.outputs.backend_digest }}
+          FRONTEND_EXPECTED_DIGEST: ${{ steps.frontend.outputs.digest || steps.existing.outputs.frontend_digest }}
+          GATEWAY_EXPECTED_DIGEST: ${{ steps.gateway.outputs.digest || steps.existing.outputs.gateway_digest }}
+          SWARM_CHECK_EXPECTED_DIGEST: ${{ steps.swarm_check.outputs.digest || steps.existing.outputs.swarm_check_digest }}
+        run: |
+          set -Eeuo pipefail
+          for component in backend frontend gateway swarm_check; do
+            case "$component" in
+              backend) image_name=overtone-backend; version="$BACKEND_VERSION"; expected="$BACKEND_EXPECTED_DIGEST" ;;
+              frontend) image_name=overtone-frontend; version="$FRONTEND_VERSION"; expected="$FRONTEND_EXPECTED_DIGEST" ;;
+              gateway) image_name=overtone-gateway; version="$GATEWAY_VERSION"; expected="$GATEWAY_EXPECTED_DIGEST" ;;
+              swarm_check) image_name=overtone-swarm-check; version="$SWARM_CHECK_VERSION"; expected="$SWARM_CHECK_EXPECTED_DIGEST" ;;
+            esac
+            image="docker.io/${DOCKERHUB_USERNAME}/${image_name}:${version}"
+            digest=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$image")
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+              echo "Unexpected digest for $image" >&2
+              exit 1
+            }
+            [[ "$digest" == "$expected" ]] || {
+              echo "Image tag changed during this run: $image" >&2
+              exit 1
+            }
+            echo "${component}_digest=$digest" >> "$GITHUB_OUTPUT"
+            echo "Resolved $image@$digest"
+          done
 
   deploy:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy }}
@@ -206,40 +279,30 @@ jobs:
           } > ~/.ssh/config
           chmod 0600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts ~/.ssh/config
           ssh -G -T overtone-manager-ci >/dev/null
-      - name: Prepare release environment
+      - name: Copy release to manager
+        run: rsync -az --delete --filter='P /.env' --exclude='/.env' --exclude .git --exclude local-certs -- ./ overtone-manager-ci:/opt/overtone-infra/
+      - name: Pin release images in manager environment
         env:
-          SWARM_ENV_FILE: ${{ secrets.SWARM_ENV_FILE }}
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
           BACKEND_DIGEST: ${{ needs.build.outputs.backend_digest }}
           FRONTEND_DIGEST: ${{ needs.build.outputs.frontend_digest }}
           GATEWAY_DIGEST: ${{ needs.build.outputs.gateway_digest }}
           SWARM_CHECK_DIGEST: ${{ needs.build.outputs.swarm_check_digest }}
         run: |
-          [[ -n "$SWARM_ENV_FILE" ]] || { echo "SWARM_ENV_FILE is empty" >&2; exit 1; }
+          set -Eeuo pipefail
           [[ "$DOCKERHUB_USERNAME" =~ ^[A-Za-z0-9_.-]+$ ]] || {
             echo "DOCKERHUB_USERNAME contains unsupported characters" >&2
             exit 1
           }
-          umask 077
-          install -m 0600 /dev/null .env
-          printf '%s\n' "$SWARM_ENV_FILE" > .env
-          set_env() {
-            key="$1"
-            value="$2"
-            if grep -q "^${key}=" .env; then
-              sed -i "s|^${key}=.*|${key}=${value}|" .env
-            else
-              printf '%s=%s\n' "$key" "$value" >> .env
-            fi
-          }
-          set_env REGISTRY_HOST docker.io
-          set_env REGISTRY_USERNAME "$DOCKERHUB_USERNAME"
-          set_env BACKEND_IMAGE "docker.io/${DOCKERHUB_USERNAME}/overtone-backend@${BACKEND_DIGEST}"
-          set_env FRONTEND_IMAGE "docker.io/${DOCKERHUB_USERNAME}/overtone-frontend@${FRONTEND_DIGEST}"
-          set_env GATEWAY_IMAGE "docker.io/${DOCKERHUB_USERNAME}/overtone-gateway@${GATEWAY_DIGEST}"
-          set_env SWARM_CHECK_IMAGE "docker.io/${DOCKERHUB_USERNAME}/overtone-swarm-check@${SWARM_CHECK_DIGEST}"
-      - name: Copy release to manager
-        run: rsync -az --delete --exclude .git --exclude local-certs -- ./ overtone-manager-ci:/opt/overtone-infra/
+          for digest in "$BACKEND_DIGEST" "$FRONTEND_DIGEST" "$GATEWAY_DIGEST" "$SWARM_CHECK_DIGEST"; do
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+              echo "invalid release image digest" >&2
+              exit 1
+            }
+          done
+          ssh overtone-manager-ci /opt/overtone-infra/scripts/update-release-env.sh \
+            "$DOCKERHUB_USERNAME" "$BACKEND_DIGEST" "$FRONTEND_DIGEST" \
+            "$GATEWAY_DIGEST" "$SWARM_CHECK_DIGEST"
       - name: Deploy on manager
         env:
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
