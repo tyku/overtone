@@ -1,0 +1,78 @@
+name: rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: Component to roll back
+        type: choice
+        options: [backend, frontend, gateway, all]
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - name: Install SSH identity
+        env:
+          BASTION_HOST: ${{ vars.BASTION_HOST || secrets.BASTION_HOST }}
+          BASTION_USER: ${{ vars.BASTION_USER }}
+          MANAGER_PRIVATE_HOST: ${{ vars.MANAGER_PRIVATE_HOST || secrets.MANAGER_PRIVATE_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          install -d -m 0700 ~/.ssh
+          install -m 0600 /dev/null ~/.ssh/id_ed25519
+          install -m 0600 /dev/null ~/.ssh/known_hosts
+          install -m 0600 /dev/null ~/.ssh/config
+
+          for name in BASTION_HOST MANAGER_PRIVATE_HOST; do
+            value="${!name:-}"
+            [[ "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] || {
+              echo "$name is not a valid SSH HostName" >&2
+              exit 1
+            }
+          done
+          for name in BASTION_USER DEPLOY_USER; do
+            value="${!name:-}"
+            [[ "$value" =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]] || {
+              echo "$name is not a valid SSH user" >&2
+              exit 1
+            }
+          done
+          [[ -n "$DEPLOY_SSH_KEY" ]] || { echo "DEPLOY_SSH_KEY is empty" >&2; exit 1; }
+          [[ -n "$DEPLOY_KNOWN_HOSTS" ]] || { echo "DEPLOY_KNOWN_HOSTS is empty" >&2; exit 1; }
+
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          {
+            printf 'Host overtone-bastion-ci\n'
+            printf '  HostName %s\n' "$BASTION_HOST"
+            printf '  User %s\n' "$BASTION_USER"
+            printf '  IdentityFile ~/.ssh/id_ed25519\n'
+            printf '  IdentitiesOnly yes\n'
+            printf '  UserKnownHostsFile ~/.ssh/known_hosts\n'
+            printf '  StrictHostKeyChecking yes\n'
+            printf '  BatchMode yes\n\n'
+            printf 'Host overtone-manager-ci\n'
+            printf '  HostName %s\n' "$MANAGER_PRIVATE_HOST"
+            printf '  User %s\n' "$DEPLOY_USER"
+            printf '  ProxyJump overtone-bastion-ci\n'
+            printf '  IdentityFile ~/.ssh/id_ed25519\n'
+            printf '  IdentitiesOnly yes\n'
+            printf '  UserKnownHostsFile ~/.ssh/known_hosts\n'
+            printf '  StrictHostKeyChecking yes\n'
+            printf '  BatchMode yes\n'
+          } > ~/.ssh/config
+          chmod 0600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts ~/.ssh/config
+          ssh -G -T overtone-manager-ci >/dev/null
+      - name: Roll back and smoke test
+        env:
+          COMPONENT: ${{ inputs.component }}
+        run: ssh overtone-manager-ci "cd /opt/overtone-infra && ./scripts/rollback.sh '$COMPONENT'"

@@ -1,0 +1,262 @@
+name: build-push-and-deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      overtone_ref:
+        description: Overtone branch, tag, or SHA to build
+        required: true
+        default: main
+      infra_ref:
+        description: Overtone infrastructure branch, tag, or SHA to use
+        required: true
+        default: main
+      deploy:
+        description: Deploy to the protected production environment after push
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify-backend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.overtone_ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Check backend
+        working-directory: backend
+        run: |
+          npm ci
+          npm run build
+          npm test -- --runInBand
+
+  verify-frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.overtone_ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Check frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Install browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Check frontend in browser
+        working-directory: frontend
+        run: npm run test:browser
+      - name: Check production frontend image
+        working-directory: frontend
+        run: npm run test:image
+
+  build:
+    needs: [verify-backend, verify-frontend]
+    runs-on: ubuntu-24.04
+    outputs:
+      infra_sha: ${{ steps.versions.outputs.infra_sha }}
+      frontend_version: ${{ steps.versions.outputs.frontend_version }}
+      backend_version: ${{ steps.versions.outputs.backend_version }}
+      gateway_version: ${{ steps.versions.outputs.gateway_version }}
+      swarm_check_version: ${{ steps.versions.outputs.swarm_check_version }}
+      frontend_digest: ${{ steps.frontend.outputs.digest }}
+      backend_digest: ${{ steps.backend.outputs.digest }}
+      gateway_digest: ${{ steps.gateway.outputs.digest }}
+      swarm_check_digest: ${{ steps.swarm_check.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.overtone_ref || github.sha }}
+          path: overtone
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/overtone-infra
+          ref: ${{ inputs.infra_ref || 'main' }}
+          path: infra
+          token: ${{ secrets.OVERTONE_INFRA_REPO_TOKEN || github.token }}
+      - id: versions
+        name: Calculate independent component versions
+        env:
+          OVERTONE_DIR: ${{ github.workspace }}/overtone
+        run: |
+          echo "infra_sha=$(git -C infra rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          infra/scripts/image-versions.sh >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: backend
+        uses: docker/build-push-action@v6
+        with:
+          context: overtone/backend
+          file: overtone/backend/Dockerfile
+          target: backend
+          push: true
+          build-args: APP_VERSION=${{ steps.versions.outputs.backend_version }}
+          tags: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-backend:${{ steps.versions.outputs.backend_version }}
+      - id: frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: overtone/frontend
+          file: overtone/frontend/Dockerfile
+          push: true
+          build-args: APP_VERSION=${{ steps.versions.outputs.frontend_version }}
+          tags: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-frontend:${{ steps.versions.outputs.frontend_version }}
+      - id: gateway
+        uses: docker/build-push-action@v6
+        with:
+          context: infra
+          file: infra/nginx/Dockerfile
+          push: true
+          build-args: APP_VERSION=${{ steps.versions.outputs.gateway_version }}
+          tags: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-gateway:${{ steps.versions.outputs.gateway_version }}
+      - id: swarm_check
+        uses: docker/build-push-action@v6
+        with:
+          context: infra
+          file: infra/swarm-check/Dockerfile
+          push: true
+          build-args: APP_VERSION=${{ steps.versions.outputs.swarm_check_version }}
+          tags: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-swarm-check:${{ steps.versions.outputs.swarm_check_version }}
+
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy }}
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/overtone-infra
+          ref: ${{ needs.build.outputs.infra_sha }}
+          token: ${{ secrets.OVERTONE_INFRA_REPO_TOKEN || github.token }}
+      - name: Install SSH identity
+        env:
+          BASTION_HOST: ${{ vars.BASTION_HOST || secrets.BASTION_HOST }}
+          BASTION_USER: ${{ vars.BASTION_USER }}
+          MANAGER_PRIVATE_HOST: ${{ vars.MANAGER_PRIVATE_HOST || secrets.MANAGER_PRIVATE_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          install -d -m 0700 ~/.ssh
+          install -m 0600 /dev/null ~/.ssh/id_ed25519
+          install -m 0600 /dev/null ~/.ssh/known_hosts
+          install -m 0600 /dev/null ~/.ssh/config
+
+          for name in BASTION_HOST MANAGER_PRIVATE_HOST; do
+            value="${!name:-}"
+            [[ "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] || {
+              echo "$name is not a valid SSH HostName" >&2
+              exit 1
+            }
+          done
+          for name in BASTION_USER DEPLOY_USER; do
+            value="${!name:-}"
+            [[ "$value" =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]] || {
+              echo "$name is not a valid SSH user" >&2
+              exit 1
+            }
+          done
+          [[ -n "$DEPLOY_SSH_KEY" ]] || { echo "DEPLOY_SSH_KEY is empty" >&2; exit 1; }
+          [[ -n "$DEPLOY_KNOWN_HOSTS" ]] || { echo "DEPLOY_KNOWN_HOSTS is empty" >&2; exit 1; }
+
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          {
+            printf 'Host overtone-bastion-ci\n'
+            printf '  HostName %s\n' "$BASTION_HOST"
+            printf '  User %s\n' "$BASTION_USER"
+            printf '  IdentityFile ~/.ssh/id_ed25519\n'
+            printf '  IdentitiesOnly yes\n'
+            printf '  UserKnownHostsFile ~/.ssh/known_hosts\n'
+            printf '  StrictHostKeyChecking yes\n'
+            printf '  BatchMode yes\n\n'
+            printf 'Host overtone-manager-ci\n'
+            printf '  HostName %s\n' "$MANAGER_PRIVATE_HOST"
+            printf '  User %s\n' "$DEPLOY_USER"
+            printf '  ProxyJump overtone-bastion-ci\n'
+            printf '  IdentityFile ~/.ssh/id_ed25519\n'
+            printf '  IdentitiesOnly yes\n'
+            printf '  UserKnownHostsFile ~/.ssh/known_hosts\n'
+            printf '  StrictHostKeyChecking yes\n'
+            printf '  BatchMode yes\n'
+          } > ~/.ssh/config
+          chmod 0600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts ~/.ssh/config
+          ssh -G -T overtone-manager-ci >/dev/null
+      - name: Prepare release environment
+        env:
+          SWARM_ENV_FILE: ${{ secrets.SWARM_ENV_FILE }}
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          BACKEND_DIGEST: ${{ needs.build.outputs.backend_digest }}
+          FRONTEND_DIGEST: ${{ needs.build.outputs.frontend_digest }}
+          GATEWAY_DIGEST: ${{ needs.build.outputs.gateway_digest }}
+          SWARM_CHECK_DIGEST: ${{ needs.build.outputs.swarm_check_digest }}
+        run: |
+          [[ -n "$SWARM_ENV_FILE" ]] || { echo "SWARM_ENV_FILE is empty" >&2; exit 1; }
+          [[ "$DOCKERHUB_USERNAME" =~ ^[A-Za-z0-9_.-]+$ ]] || {
+            echo "DOCKERHUB_USERNAME contains unsupported characters" >&2
+            exit 1
+          }
+          umask 077
+          install -m 0600 /dev/null .env
+          printf '%s\n' "$SWARM_ENV_FILE" > .env
+          set_env() {
+            key="$1"
+            value="$2"
+            if grep -q "^${key}=" .env; then
+              sed -i "s|^${key}=.*|${key}=${value}|" .env
+            else
+              printf '%s=%s\n' "$key" "$value" >> .env
+            fi
+          }
+          set_env REGISTRY_HOST docker.io
+          set_env REGISTRY_USERNAME "$DOCKERHUB_USERNAME"
+          set_env BACKEND_IMAGE "docker.io/${DOCKERHUB_USERNAME}/overtone-backend@${BACKEND_DIGEST}"
+          set_env FRONTEND_IMAGE "docker.io/${DOCKERHUB_USERNAME}/overtone-frontend@${FRONTEND_DIGEST}"
+          set_env GATEWAY_IMAGE "docker.io/${DOCKERHUB_USERNAME}/overtone-gateway@${GATEWAY_DIGEST}"
+          set_env SWARM_CHECK_IMAGE "docker.io/${DOCKERHUB_USERNAME}/overtone-swarm-check@${SWARM_CHECK_DIGEST}"
+      - name: Copy release to manager
+        run: rsync -az --delete --exclude .git --exclude local-certs -- ./ overtone-manager-ci:/opt/overtone-infra/
+      - name: Deploy on manager
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          [[ "$DOCKERHUB_USERNAME" =~ ^[A-Za-z0-9_.-]+$ ]] || {
+            echo "DOCKERHUB_USERNAME contains unsupported characters" >&2
+            exit 1
+          }
+          [[ -n "$DOCKERHUB_TOKEN" ]] || { echo "production DOCKERHUB_TOKEN is empty" >&2; exit 1; }
+
+          remote_command=$(printf '%s\n' \
+            'set -eu' \
+            'docker_config="$(mktemp -d)"' \
+            'export DOCKER_CONFIG="$docker_config"' \
+            'trap '\''rm -rf -- "$docker_config"'\'' EXIT' \
+            "docker login docker.io --username '$DOCKERHUB_USERNAME' --password-stdin" \
+            'cd /opt/overtone-infra' \
+            './scripts/deploy.sh')
+          printf '%s' "$DOCKERHUB_TOKEN" | ssh overtone-manager-ci "$remote_command"
