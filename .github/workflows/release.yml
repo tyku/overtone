@@ -149,7 +149,9 @@ jobs:
           file: overtone/backend/Dockerfile
           target: backend
           push: true
-          build-args: APP_VERSION=${{ steps.versions.outputs.backend_version }}
+          build-args: |
+            APP_VERSION=${{ steps.versions.outputs.backend_version }}
+            BEGET_CA_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
           tags: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-backend:${{ steps.versions.outputs.backend_version }}
       - id: frontend
         if: steps.existing.outputs.frontend_exists == 'false'
