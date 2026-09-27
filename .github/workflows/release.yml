@@ -130,6 +130,11 @@ jobs:
                 echo "Unexpected digest for $image" >&2
                 exit 1
               }
+              image_config=$(docker buildx imagetools inspect --format '{{json .Image}}' "$image")
+              if ! jq -e 'if type == "object" and has("architecture") then .os == "linux" and .architecture == "amd64" elif type == "object" then has("linux/amd64") else false end' <<< "$image_config" >/dev/null; then
+                echo "Existing image does not support linux/amd64: $image" >&2
+                exit 1
+              fi
               echo "${component}_exists=true" >> "$GITHUB_OUTPUT"
               echo "${component}_digest=$output" >> "$GITHUB_OUTPUT"
               echo "Reusing $image@$output"
@@ -148,6 +153,7 @@ jobs:
           context: overtone/backend
           file: overtone/backend/Dockerfile
           target: backend
+          platforms: linux/amd64
           push: true
           build-args: |
             APP_VERSION=${{ steps.versions.outputs.backend_version }}
@@ -159,6 +165,7 @@ jobs:
         with:
           context: overtone/frontend
           file: overtone/frontend/Dockerfile
+          platforms: linux/amd64
           push: true
           build-args: APP_VERSION=${{ steps.versions.outputs.frontend_version }}
           tags: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-frontend:${{ steps.versions.outputs.frontend_version }}
@@ -168,6 +175,7 @@ jobs:
         with:
           context: infra
           file: infra/nginx/Dockerfile
+          platforms: linux/amd64
           push: true
           build-args: APP_VERSION=${{ steps.versions.outputs.gateway_version }}
           tags: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-gateway:${{ steps.versions.outputs.gateway_version }}
@@ -177,6 +185,7 @@ jobs:
         with:
           context: infra
           file: infra/swarm-check/Dockerfile
+          platforms: linux/amd64
           push: true
           build-args: APP_VERSION=${{ steps.versions.outputs.swarm_check_version }}
           tags: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-swarm-check:${{ steps.versions.outputs.swarm_check_version }}
