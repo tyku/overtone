@@ -56,7 +56,6 @@ function Application() {
         <nav className="topnav" aria-label="Основная навигация">
           <AppLink href="/requests">Приёмы</AppLink>
           <AppLink href="/profile">Профиль</AppLink>
-          {isAdmin && <AppLink href="/admin">Админка</AppLink>}
           <button className="link-button" onClick={() => void auth.logout().then(() => navigate('/login', true))}>Выйти</button>
         </nav>
       </header>

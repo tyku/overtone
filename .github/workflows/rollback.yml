@@ -72,7 +72,7 @@ jobs:
           } > ~/.ssh/config
           chmod 0600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts ~/.ssh/config
           ssh -G -T overtone-manager-ci >/dev/null
-      - name: Roll back and smoke test
+      - name: Roll back services
         env:
           COMPONENT: ${{ inputs.component }}
         run: ssh overtone-manager-ci "cd /opt/overtone-infra && ./scripts/rollback.sh '$COMPONENT'"

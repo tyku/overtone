@@ -281,15 +281,17 @@ jobs:
           } > ~/.ssh/config
           chmod 0600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts ~/.ssh/config
           ssh -G -T overtone-manager-ci >/dev/null
-      - name: Copy release to manager
-        run: rsync -az --delete --filter='P /.env' --exclude='/.env' --exclude .git --exclude local-certs -- ./ overtone-manager-ci:/opt/overtone-infra/
-      - name: Pin release images in manager environment
+      - name: Write release image manifest
         env:
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
           BACKEND_DIGEST: ${{ needs.build.outputs.backend_digest }}
           FRONTEND_DIGEST: ${{ needs.build.outputs.frontend_digest }}
           GATEWAY_DIGEST: ${{ needs.build.outputs.gateway_digest }}
           SWARM_CHECK_DIGEST: ${{ needs.build.outputs.swarm_check_digest }}
+          BACKEND_REF: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-backend@${{ needs.build.outputs.backend_digest }}
+          FRONTEND_REF: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-frontend@${{ needs.build.outputs.frontend_digest }}
+          GATEWAY_REF: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-gateway@${{ needs.build.outputs.gateway_digest }}
+          SWARM_CHECK_REF: docker.io/${{ vars.DOCKERHUB_USERNAME }}/overtone-swarm-check@${{ needs.build.outputs.swarm_check_digest }}
         run: |
           set -Eeuo pipefail
           [[ "$DOCKERHUB_USERNAME" =~ ^[A-Za-z0-9_.-]+$ ]] || {
@@ -302,9 +304,10 @@ jobs:
               exit 1
             }
           done
-          ssh overtone-manager-ci /opt/overtone-infra/scripts/update-release-env.sh \
-            "$DOCKERHUB_USERNAME" "$BACKEND_DIGEST" "$FRONTEND_DIGEST" \
-            "$GATEWAY_DIGEST" "$SWARM_CHECK_DIGEST"
+          docker stack config --compose-file infra/swarm/images.template.yml > infra/swarm/images.yml
+          docker compose -f infra/swarm/images.yml config --quiet
+      - name: Copy release to manager
+        run: rsync -az --delete --filter='P /.env' --exclude='/.env' --exclude .git --exclude local-certs -- ./ overtone-manager-ci:/opt/overtone-infra/
       - name: Deploy on manager
         env:
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
