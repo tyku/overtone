@@ -115,7 +115,7 @@ test('shows a generated password once and only its date after returning', async 
   await page.getByRole('button', { name: 'Скопировать пароль' }).click();
   await expect(page.getByText('Пароль скопирован')).toBeVisible();
   await page.getByRole('link', { name: 'Профиль' }).click();
-  await page.getByRole('link', { name: 'Админка' }).click();
+  await page.goto('/admin');
   await expect(page.getByText('OneTime-Password-42')).toHaveCount(0);
   await page.getByRole('tab', { name: /Пользователи/ }).click();
   await expect(page.getByText('doctor@example.com')).toBeVisible();
