@@ -304,8 +304,8 @@ jobs:
               exit 1
             }
           done
-          docker stack config --compose-file infra/swarm/images.template.yml > infra/swarm/images.yml
-          docker compose -f infra/swarm/images.yml config --quiet
+          docker stack config --compose-file swarm/images.template.yml > swarm/images.yml
+          docker compose -f swarm/images.yml config --quiet
       - name: Copy release to manager
         run: rsync -az --delete --filter='P /.env' --exclude='/.env' --exclude .git --exclude local-certs -- ./ overtone-manager-ci:/opt/overtone-infra/
       - name: Deploy on manager
