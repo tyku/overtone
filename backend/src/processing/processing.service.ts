@@ -42,7 +42,7 @@ export class ProcessingService {
             specialty: this.config.get<string>('INFERENCE_SPECIALTY', ''),
             llmBackend: this.config.get<string>(
               'INFERENCE_LLM_BACKEND',
-              'LOCAL',
+              'OPENROUTER',
             ),
           },
         ),
