@@ -19,6 +19,9 @@ export function HistoryPage({ setNotice }: HistoryPageProps) {
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [conflictingRequestId, setConflictingRequestId] = useState<
+    string | null
+  >(null);
   const [legacy, setLegacy] = useState<LegacyRecording[]>([]);
 
   const load = useCallback(
@@ -49,6 +52,7 @@ export function HistoryPage({ setNotice }: HistoryPageProps) {
   const createRequest = async (kind: 'regular' | 'demo') => {
     if (creating) return;
     setCreating(true);
+    setConflictingRequestId(null);
     try {
       await requestStore.database();
       const value = await requestApi.create(kind);
@@ -59,8 +63,13 @@ export function HistoryPage({ setNotice }: HistoryPageProps) {
         error instanceof ApiFailure &&
         error.code === 'ACTIVE_REQUEST_EXISTS'
       ) {
-        setNotice('Сначала завершите текущий приём.');
-        if (error.requestId) navigate(`/requests/${error.requestId}`);
+        if (kind === 'demo') {
+          setNotice('Демо-приём не создан: сначала завершите текущий приём.');
+          setConflictingRequestId(error.requestId ?? null);
+        } else {
+          setNotice('Сначала завершите текущий приём.');
+          if (error.requestId) navigate(`/requests/${error.requestId}`);
+        }
       } else {
         setNotice(errorMessage(error));
       }
@@ -121,6 +130,13 @@ export function HistoryPage({ setNotice }: HistoryPageProps) {
           ? 'Все приёмы, включая незавершённые и закрытые без сохранения'
           : 'Приёмов пока нет. Начните первый.'}
       </p>
+      {conflictingRequestId && (
+        <p>
+          <AppLink href={`/requests/${conflictingRequestId}`}>
+            Открыть незавершённый приём
+          </AppLink>
+        </p>
+      )}
       <div id="requestList" className="request-list">
         {items.map((row) => (
           <AppLink
