@@ -66,10 +66,12 @@ export function useRequestPageController({
 
   const save = useCallback(async () => {
     setLastError(null);
-    await recording.finalize();
-    recording.stopMeter();
-    recording.refreshRecorderState();
-    await refreshLocal();
+    if (current?.kind !== 'demo') {
+      await recording.finalize();
+      recording.stopMeter();
+      recording.refreshRecorderState();
+      await refreshLocal();
+    }
     const serverRow = await requestApi.get(requestId);
     const localRow = await applyServer(serverRow);
     if (
@@ -79,7 +81,7 @@ export function useRequestPageController({
     ) {
       return;
     }
-    if (localRow.captureError) {
+    if (serverRow.kind !== 'demo' && localRow.captureError) {
       throw new Error(
         'При записи произошла ошибка локального сохранения. Аудио оставлено для разбора; можно закрыть приём без сохранения.',
       );
@@ -87,6 +89,7 @@ export function useRequestPageController({
 
     let parts: AudioPart[] | undefined;
     if (
+      serverRow.kind !== 'demo' &&
       !serverRow.audioStored &&
       serverRow.error?.retryAction !== 'complete_without_audio'
     ) {
@@ -105,7 +108,7 @@ export function useRequestPageController({
         // Preserve the original error and the frozen local audio.
       }
     }
-  }, [applyServer, recording, refreshLocal, requestId]);
+  }, [applyServer, current?.kind, recording, refreshLocal, requestId]);
 
   const canRetryProcessing = Boolean(
     current?.status === 'processing_failed' &&

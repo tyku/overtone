@@ -109,7 +109,7 @@ describeDb('Requests HTTP + PostgreSQL integration', () => {
             fullName: null,
             position: null,
             specialization: null,
-            permissions: ['requests:use'],
+            permissions: ['requests:use', 'requests:demo'],
           };
           return true;
         },
@@ -186,6 +186,38 @@ describeDb('Requests HTTP + PostgreSQL integration', () => {
         error: { code: 'ACTIVE_REQUEST_EXISTS' },
       });
     }
+  });
+  it('saves the prepared demo audio without a browser upload', async () => {
+    const created = await request(server)
+      .post('/api/requests')
+      .send({ kind: 'demo' })
+      .expect(201);
+    const id = (created.body as { requestId: string }).requestId;
+    await request(server)
+      .get(`/api/requests/${id}/demo-audio`)
+      .set('Range', 'bytes=0-1023')
+      .expect(206)
+      .expect('Content-Type', 'audio/mp4')
+      .expect(({ headers, body }) => {
+        expect(headers['content-range']).toMatch(/^bytes 0-1023\/\d+$/);
+        expect((body as Buffer).length).toBe(1024);
+      });
+    await request(server)
+      .post(`/api/requests/${id}/complete`)
+      .send({})
+      .expect(200)
+      .expect(({ body }) =>
+        expect(body).toMatchObject({
+          kind: 'demo',
+          status: 'processing',
+          audioStored: true,
+        }),
+      );
+    const saved = objects.get(`requests/${id}/input/audio.m4a`);
+    expect(saved?.content).toEqual(
+      await readFile(join(process.cwd(), 'assets', 'demo.m4a')),
+    );
+    expect(encoder.encodeToM4a).not.toHaveBeenCalled();
   });
   it('freezes audio, commits one intent and replays completion without overwriting S3', async () => {
     const id = await create();

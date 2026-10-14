@@ -64,8 +64,8 @@ export function HistoryPage({ setNotice }: HistoryPageProps) {
         error.code === 'ACTIVE_REQUEST_EXISTS'
       ) {
         if (kind === 'demo') {
-          setNotice('Демо-приём не создан: сначала завершите текущий приём.');
-          setConflictingRequestId(error.requestId ?? null);
+          setNotice('');
+          setConflictingRequestId(error.requestId ?? '');
         } else {
           setNotice('Сначала завершите текущий приём.');
           if (error.requestId) navigate(`/requests/${error.requestId}`);
@@ -130,12 +130,19 @@ export function HistoryPage({ setNotice }: HistoryPageProps) {
           ? 'Все приёмы, включая незавершённые и закрытые без сохранения'
           : 'Приёмов пока нет. Начните первый.'}
       </p>
-      {conflictingRequestId && (
-        <p>
-          <AppLink href={`/requests/${conflictingRequestId}`}>
-            Открыть незавершённый приём
-          </AppLink>
-        </p>
+      {conflictingRequestId !== null && (
+        <div className="demo-conflict" role="alert">
+          <strong>Демо-приём не начат</strong>
+          <p>
+            У вас уже есть незавершённый приём. Завершите его, затем начните
+            демо-приём.
+          </p>
+          {conflictingRequestId && (
+            <AppLink href={`/requests/${conflictingRequestId}`}>
+              Открыть незавершённый приём
+            </AppLink>
+          )}
+        </div>
       )}
       <div id="requestList" className="request-list">
         {items.map((row) => (

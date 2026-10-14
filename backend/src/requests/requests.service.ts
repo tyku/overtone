@@ -181,20 +181,52 @@ export class RequestsService {
             id,
           );
         if (isClosed(row)) return { httpStatus: 200, body: this.view(row) };
-        if (!row.fingerprint && !audio) throw this.uploadRequired(id);
-        if (audio && !row.fingerprint) {
+        const demoSource =
+          row.kind === 'demo' && !audio
+            ? join(process.cwd(), 'assets', 'demo.m4a')
+            : undefined;
+        let manifest = audio?.manifest;
+        let fingerprint = audio?.fingerprint;
+        if (!row.fingerprint && demoSource) {
+          const file = await stat(demoSource).catch(() => undefined);
+          if (!file?.size)
+            throw new RequestError(
+              503,
+              'DEMO_AUDIO_UNAVAILABLE',
+              'Prepared demo audio is unavailable',
+              'none',
+              id,
+            );
+          manifest = {
+            parts: [
+              {
+                partNo: 1,
+                field: 'part_1',
+                mimeType: 'audio/mp4',
+                bytes: file.size,
+                sha256: await fileHash(demoSource),
+              },
+            ],
+          };
+          fingerprint = createHash('sha256')
+            .update(JSON.stringify(manifest))
+            .digest('hex');
+        }
+        if (!row.fingerprint && (!manifest || !fingerprint))
+          throw this.uploadRequired(id);
+        if (!row.fingerprint) {
           row = await this.db.transaction(client, async () => {
             const result = await client.query<RequestRow>(
               "UPDATE requests SET manifest=$2, fingerprint=$3, audio_key=$4, status='saving', error=NULL, updated_at=now() WHERE id=$1 AND closed_at IS NULL RETURNING *",
               [
                 id,
-                JSON.stringify(audio.manifest),
-                audio.fingerprint,
+                JSON.stringify(manifest),
+                fingerprint,
                 `requests/${id}/input/audio.m4a`,
               ],
             );
             await this.event(client, id, 'audio_frozen', {
-              fingerprint: audio.fingerprint,
+              fingerprint,
             });
             return result.rows[0];
           });
@@ -211,7 +243,7 @@ export class RequestsService {
         try {
           stored = await this.confirmAudio(row);
           if (!stored) {
-            const sourcePath = await this.assemble(row, audio);
+            const sourcePath = demoSource ?? (await this.assemble(row, audio));
             await this.storage.uploadImmutable({
               sourcePath,
               objectKey: row.audio_key!,

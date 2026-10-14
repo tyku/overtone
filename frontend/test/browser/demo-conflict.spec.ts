@@ -66,8 +66,13 @@ test('a blocked demo start stays in history instead of opening a regular request
   await page.getByRole('button', { name: 'Начать демо-приём' }).click();
 
   await expect(page).toHaveURL(/\/requests$/);
-  await expect(page.locator('#notice')).toHaveText(
-    'Демо-приём не создан: сначала завершите текущий приём.',
+  await expect(page.getByRole('alert')).toContainText('Демо-приём не начат');
+  await expect(page.getByRole('alert')).toContainText(
+    'У вас уже есть незавершённый приём.',
+  );
+  await expect(page.locator('.demo-conflict')).toHaveCSS(
+    'border-top-color',
+    'rgb(229, 112, 124)',
   );
   await expect(page.locator('#recorderPanel')).toHaveCount(0);
   expect(demoAttempts).toBe(1);

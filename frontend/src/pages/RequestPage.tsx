@@ -40,7 +40,7 @@ export function RequestPage({
       {current?.status === 'created' &&
         !frozen &&
         (isDemo ? (
-          <DemoPanel controller={controller} />
+          <DemoPanel key={requestId} controller={controller} />
         ) : (
           <RecorderPanel controller={controller} />
         ))}

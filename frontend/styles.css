@@ -137,6 +137,26 @@ h2 {
   color: #ffd2d9;
   border: 1px solid #78404c;
 }
+.demo-conflict {
+  margin: 24px 0;
+  padding: 18px 22px;
+  border: 2px solid #e5707c;
+  border-radius: 12px;
+  background: #632b36;
+  color: #ffe6e9;
+}
+.demo-conflict strong {
+  display: block;
+  font-size: 1.1rem;
+}
+.demo-conflict p {
+  margin: 8px 0 12px;
+}
+.demo-conflict a {
+  color: #fff;
+  font-weight: 650;
+  text-decoration: underline;
+}
 .request-list {
   display: grid;
   gap: 12px;
