@@ -95,12 +95,18 @@ export function useRequestPageController({
     }
   }, [applyServer, recording, refreshLocal, requestId]);
 
+  const canRetryProcessing = Boolean(
+    current?.status === 'processing_failed' &&
+      current.error?.retryAction !== 'none' &&
+      current.commands?.[0]?.commandId,
+  );
+
   const retryProcessing = useCallback(async () => {
     const commandId = current?.commands?.[0]?.commandId;
-    if (!commandId) return;
+    if (!canRetryProcessing || !commandId) return;
     setLastError(null);
     await applyServer(await requestApi.retryProcessing(requestId, commandId));
-  }, [applyServer, current?.commands, requestId]);
+  }, [applyServer, canRetryProcessing, current?.commands, requestId]);
 
   const abandon = useCallback(async () => {
     if (
@@ -146,6 +152,7 @@ export function useRequestPageController({
     recording,
     perform,
     save,
+    canRetryProcessing,
     retryProcessing,
     abandon,
   };

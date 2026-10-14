@@ -16,5 +16,14 @@ const messages: Record<string, string> = {
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiFailure) return messages[error.code] ?? error.message;
   if (error instanceof Error) return messages[error.name] ?? error.message;
-  return String(error);
+  if (typeof error === 'object' && error !== null) {
+    if ('code' in error && typeof error.code === 'string' && messages[error.code]) {
+      return messages[error.code];
+    }
+    if ('message' in error && typeof error.message === 'string' && error.message.trim()) {
+      return error.message;
+    }
+  }
+  if (typeof error === 'string' && error.trim()) return error;
+  return 'Произошла ошибка. Подробности недоступны.';
 }

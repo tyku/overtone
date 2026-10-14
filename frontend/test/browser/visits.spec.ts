@@ -193,6 +193,9 @@ test('failed finalization survives reload and retries without audio after S3 con
   ).toBeEnabled();
   await expect(page.locator('#requestStatus')).toHaveText('Ошибка сохранения');
   await page.reload();
+  await expect(page.locator('#requestError')).toHaveText(
+    'Аудио сохранено. Нужно повторить закрытие приёма.',
+  );
   await expect(page.locator('#recorderPanel')).toBeHidden();
   await expect(
     page.getByRole('button', { name: 'Продолжить запись' }),
@@ -242,9 +245,44 @@ test('processing failure retries the current command and returns to waiting', as
   state.rows = [state.row];
   await page.goto(`/requests/${id}`);
   await expect(page.locator('#failedPanel')).toBeVisible();
+  await expect(page.locator('#failedPanel [role="alert"]')).toHaveText('GPU failed');
   await page.getByRole('button', { name: 'Повторить обработку' }).click();
   await expect(page.locator('#waitingPanel')).toBeVisible();
   expect(state.retries).toEqual([{ commandId }]);
+});
+
+for (const width of [1280, 390]) {
+  test(`processing timeout displays server details without retry at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const state = await fixture(page);
+    const message = 'Не удалось получить отчёт за 5 минут. Выполнение GPU могло продолжиться.';
+    state.row.status = 'processing_failed';
+    state.row.audioStored = true;
+    state.row.error = { code: 'PROCESSING_TIMEOUT', message, retryAction: 'none' };
+    state.row.commands = [{ commandId: 'a04b4fd3-bbe0-4d62-9a7d-276ac1654c2c', status: 'timed_out' }];
+
+    await page.goto(`/requests/${id}`);
+    await expect(page.getByRole('heading', { name: 'Время ожидания отчёта истекло' })).toBeVisible();
+    await expect(page.locator('#requestError')).toHaveText(message);
+    await expect(page.getByText('Аудиозапись сохранена.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Повторная обработка сейчас недоступна.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Повторить обработку' })).toHaveCount(0);
+    await expect(page.getByText('[object Object]', { exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(state.retries).toHaveLength(0);
+  });
+}
+
+test('processing failure respects retryAction none and does not claim unconfirmed audio is saved', async ({ page }) => {
+  const state = await fixture(page);
+  state.row.status = 'processing_failed';
+  state.row.error = { code: 'PROCESSING_FAILED', message: 'Обработка завершилась с ошибкой', retryAction: 'none' };
+  state.row.commands = [{ commandId: 'f61c2520-d47f-493d-b7ba-842bc1e87b11', status: 'failed' }];
+
+  await page.goto(`/requests/${id}`);
+  await expect(page.locator('#requestError')).toHaveText('Обработка завершилась с ошибкой');
+  await expect(page.getByRole('button', { name: 'Повторить обработку' })).toHaveCount(0);
+  await expect(page.getByText('Аудиозапись сохранена.', { exact: true })).toHaveCount(0);
 });
 
 test('processing status keeps polling until the server reaches a terminal state', async ({

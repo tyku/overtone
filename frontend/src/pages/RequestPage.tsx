@@ -23,7 +23,7 @@ export function RequestPage({ requestId, setNotice, onBusyChange }: RequestPageP
         requestId={requestId}
         current={current}
         statusLabel={controller.statusLabel}
-        errorText={controller.errorText}
+        errorText={current?.status === 'processing_failed' ? '' : controller.errorText}
       />
       {current?.status === 'created' && !frozen && <RecorderPanel controller={controller} />}
       {saving && <SavingPanel controller={controller} />}
