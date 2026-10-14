@@ -8,10 +8,7 @@ export type RequestStatus =
   | 'abandoned';
 
 export type RetryAction =
-  | 'none'
-  | 'check_status'
-  | 'upload_audio'
-  | 'complete_without_audio';
+  'none' | 'check_status' | 'upload_audio' | 'complete_without_audio';
 
 export interface RequestError {
   code: string;
@@ -26,6 +23,7 @@ export interface RequestCommand {
 
 export interface RequestRow {
   requestId: string;
+  kind?: 'regular' | 'demo';
   status: RequestStatus;
   createdAt: string;
   closedAt?: string | null;
@@ -57,6 +55,7 @@ export interface LocalPart {
 
 export interface LocalRequest {
   requestId: string;
+  kind?: 'regular' | 'demo';
   createdAt: string;
   status: RequestStatus;
   parts: LocalPart[];

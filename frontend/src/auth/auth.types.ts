@@ -1,5 +1,6 @@
 export type Permission =
   | 'requests:use'
+  | 'requests:demo'
   | 'admin:access'
   | 'admin:clinics:manage'
   | 'admin:users:manage';
@@ -29,4 +30,3 @@ export interface AdminUser extends AuthUser {
   createdAt: string;
   updatedAt: string;
 }
-

@@ -17,18 +17,28 @@ export function RequestHeader({
 }: RequestHeaderProps) {
   return (
     <>
-      <AppLink href="/requests" className="back">← Все приёмы</AppLink>
+      <AppLink href="/requests" className="back">
+        ← Все приёмы
+      </AppLink>
       <div className="page-heading">
         <div>
           <p id="requestDate" className="eyebrow">
             {current ? formatDate(current.createdAt) : ''}
           </p>
-          <h1>Приём</h1>
+          <h1>{current?.kind === 'demo' ? 'Демо-приём' : 'Приём'}</h1>
         </div>
-        <span id="requestStatus" className="badge" role="status">{statusLabel}</span>
+        <span id="requestStatus" className="badge" role="status">
+          {statusLabel}
+        </span>
       </div>
-      <p id="requestId" className="identifier">{requestId}</p>
-      {errorText && <p id="requestError" className="error" role="alert">{errorText}</p>}
+      <p id="requestId" className="identifier">
+        {requestId}
+      </p>
+      {errorText && (
+        <p id="requestError" className="error" role="alert">
+          {errorText}
+        </p>
+      )}
     </>
   );
 }

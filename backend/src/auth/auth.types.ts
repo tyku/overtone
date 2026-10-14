@@ -1,5 +1,6 @@
 export const PERMISSIONS = [
   'requests:use',
+  'requests:demo',
   'admin:access',
   'admin:clinics:manage',
   'admin:users:manage',
@@ -35,4 +36,3 @@ export type UserRow = {
   permissions: string[];
 };
 import type { Request } from 'express';
-

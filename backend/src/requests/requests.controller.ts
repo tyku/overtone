@@ -22,6 +22,7 @@ import { RequestError } from './request.types';
 import { SessionGuard } from '../auth/session.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { join } from 'node:path';
 import {
   PermissionsGuard,
   RequirePermissions,
@@ -61,8 +62,43 @@ export class RequestsController {
     private readonly service: RequestsService,
     private readonly uploads: AudioUploadService,
   ) {}
-  @Post() create(@CurrentUser() user: AuthenticatedUser) {
-    return this.service.create(user.id);
+  @Post() create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: unknown,
+  ) {
+    const value = body as Record<string, unknown> | null;
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      Array.isArray(value) ||
+      Object.keys(value).some((key) => key !== 'kind') ||
+      (value.kind !== undefined &&
+        value.kind !== 'regular' &&
+        value.kind !== 'demo')
+    ) {
+      throw new RequestError(400, 'INVALID_REQUEST', 'Invalid request kind');
+    }
+    const kind = value.kind === 'demo' ? 'demo' : 'regular';
+    if (kind === 'demo' && !user.permissions.includes('requests:demo')) {
+      throw new RequestError(403, 'PERMISSION_DENIED', 'Permission denied');
+    }
+    return this.service.create(user.id, kind);
+  }
+  @Get(':id/demo-audio') async demoAudio(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Res() response: Response,
+  ) {
+    if (!user.permissions.includes('requests:demo')) {
+      throw new RequestError(403, 'PERMISSION_DENIED', 'Permission denied');
+    }
+    const row = await this.service.get(user.id, id);
+    if (row.kind !== 'demo') {
+      throw new RequestError(404, 'REQUEST_NOT_FOUND', 'Demo audio not found');
+    }
+    response
+      .type('audio/mp4')
+      .sendFile(join(process.cwd(), 'assets', 'demo.m4a'));
   }
   @Get() list(
     @CurrentUser() user: AuthenticatedUser,
@@ -85,7 +121,10 @@ export class RequestsController {
   ) {
     this.service.validateId(id);
     // Avoid receiving large bodies for unknown requests, without holding a DB transaction.
-    await this.service.get(user.id, id);
+    const row = await this.service.get(user.id, id);
+    if (row.kind === 'demo' && !user.permissions.includes('requests:demo')) {
+      throw new RequestError(403, 'PERMISSION_DENIED', 'Permission denied');
+    }
     const audio = await this.uploads.receive(request);
     const result = await this.service.complete(user.id, id, audio);
     response.status(result.httpStatus).json(result.body);

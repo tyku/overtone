@@ -30,12 +30,17 @@ export function useRequestPageController({
   const recording = useRecordingSession({
     requestId,
     status: current?.status,
+    kind: current?.kind,
     local,
     busy,
     setLastError,
     applyServer,
   });
-  const { report, reportHtml } = useRequestReport(requestId, current?.status, setLastError);
+  const { report, reportHtml } = useRequestReport(
+    requestId,
+    current?.status,
+    setLastError,
+  );
 
   useEffect(() => {
     onBusyChange(busy);
@@ -67,7 +72,11 @@ export function useRequestPageController({
     await refreshLocal();
     const serverRow = await requestApi.get(requestId);
     const localRow = await applyServer(serverRow);
-    if (['processing', 'completed', 'abandoned', 'processing_failed'].includes(serverRow.status)) {
+    if (
+      ['processing', 'completed', 'abandoned', 'processing_failed'].includes(
+        serverRow.status,
+      )
+    ) {
       return;
     }
     if (localRow.captureError) {
@@ -77,7 +86,10 @@ export function useRequestPageController({
     }
 
     let parts: AudioPart[] | undefined;
-    if (!serverRow.audioStored && serverRow.error?.retryAction !== 'complete_without_audio') {
+    if (
+      !serverRow.audioStored &&
+      serverRow.error?.retryAction !== 'complete_without_audio'
+    ) {
       parts = await requestStore.parts(requestId);
       if (!parts.length || parts.some((part) => !part.blob.size)) {
         throw new Error('Локальное аудио недоступно на этом устройстве');
@@ -97,8 +109,8 @@ export function useRequestPageController({
 
   const canRetryProcessing = Boolean(
     current?.status === 'processing_failed' &&
-      current.error?.retryAction !== 'none' &&
-      current.commands?.[0]?.commandId,
+    current.error?.retryAction !== 'none' &&
+    current.commands?.[0]?.commandId,
   );
 
   const retryProcessing = useCallback(async () => {
@@ -118,14 +130,15 @@ export function useRequestPageController({
     }
     const row = await requestApi.abandon(requestId);
     await applyServer(row);
-    if (row.httpStatus === 202) setNotice('Сохранение ещё выполняется. Уточняем его результат.');
+    if (row.httpStatus === 202)
+      setNotice('Сохранение ещё выполняется. Уточняем его результат.');
   }, [applyServer, requestId, setNotice]);
 
   const frozen = Boolean(local?.frozenAt);
   const saving = Boolean(
     current &&
-      (['saving', 'save_failed'].includes(current.status) ||
-        (current.status === 'created' && frozen)),
+    (['saving', 'save_failed'].includes(current.status) ||
+      (current.status === 'created' && frozen)),
   );
   const statusLabel = current
     ? saving
@@ -135,7 +148,9 @@ export function useRequestPageController({
       : requestStatusLabels[current.status]
     : 'Загрузка';
   const errorText =
-    lastError ?? local?.captureError ?? (current?.error ? errorMessage(current.error) : '');
+    lastError ??
+    local?.captureError ??
+    (current?.error ? errorMessage(current.error) : '');
 
   return {
     requestId,
@@ -150,6 +165,7 @@ export function useRequestPageController({
     reportHtml,
     timerText: formatDuration(recording.elapsedMs),
     recording,
+    refreshLocal,
     perform,
     save,
     canRetryProcessing,

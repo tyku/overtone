@@ -247,7 +247,9 @@ input:disabled {
 .admin-auth-card {
   border-color: #d38a3c66;
   background: linear-gradient(155deg, #2b2119, #182033 72%);
-  box-shadow: 0 24px 80px #0008, inset 0 1px #f5b86b22;
+  box-shadow:
+    0 24px 80px #0008,
+    inset 0 1px #f5b86b22;
 }
 .admin-login-heading {
   display: flex;
@@ -584,6 +586,11 @@ input:disabled {
   width: 100%;
   display: block;
   overflow: auto;
+}
+.demo-audio {
+  display: block;
+  width: 100%;
+  margin: 24px 0;
 }
 .report td,
 .report th {

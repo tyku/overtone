@@ -69,7 +69,9 @@ export class RequestStore {
             database.createObjectStore(REQUESTS, { keyPath: 'requestId' });
           }
           if (!database.objectStoreNames.contains(CHUNKS)) {
-            const chunks = database.createObjectStore(CHUNKS, { keyPath: 'key' });
+            const chunks = database.createObjectStore(CHUNKS, {
+              keyPath: 'key',
+            });
             chunks.createIndex('requestId', 'requestId');
           }
         };
@@ -79,7 +81,11 @@ export class RequestStore {
         };
         opening.onerror = () => reject(opening.error);
         opening.onblocked = () =>
-          reject(new Error('Закройте другие вкладки Overtone для обновления хранилища'));
+          reject(
+            new Error(
+              'Закройте другие вкладки Overtone для обновления хранилища',
+            ),
+          );
       });
     }
     return this.opening;
@@ -131,9 +137,12 @@ export class RequestStore {
     const completion = done(transaction);
     const requestStore = transaction.objectStore(REQUESTS);
     const row =
-      (await result<LocalRequest | undefined>(requestStore.get(server.requestId))) ??
+      (await result<LocalRequest | undefined>(
+        requestStore.get(server.requestId),
+      )) ??
       ({
         requestId: server.requestId,
+        kind: server.kind ?? 'regular',
         createdAt: server.createdAt,
         status: server.status,
         parts: [],
@@ -145,13 +154,16 @@ export class RequestStore {
       } satisfies LocalRequest);
 
     row.status = server.status;
+    if (server.kind) row.kind = server.kind;
     if (server.status !== 'created') row.frozenAt ??= Date.now();
     if (server.audioStored === true) {
       row.audioStored = true;
       eraseChunks(transaction, row.requestId);
     }
     if (server.status === 'abandoned') {
-      row.abandonedAt ??= server.closedAt ? Date.parse(server.closedAt) : Date.now();
+      row.abandonedAt ??= server.closedAt
+        ? Date.parse(server.closedAt)
+        : Date.now();
       row.expiresAt = row.abandonedAt + ABANDONED_RETENTION_MS;
     }
     requestStore.put(row);
@@ -164,6 +176,8 @@ export class RequestStore {
       if (row.frozenAt || row.abandonedAt || row.audioStored) {
         throw new Error('Приём уже завершён: дозапись запрещена');
       }
+      if (row.kind === 'demo')
+        throw new Error('В демо-приёме запись недоступна');
       row.parts.push({
         partNo: row.parts.length + 1,
         mimeType,
@@ -173,7 +187,60 @@ export class RequestStore {
     });
   }
 
-  async addChunk(id: string, partNo: number, chunkNo: number, blob: Blob): Promise<void> {
+  async addDemoAudio(id: string, blob: Blob): Promise<LocalRequest> {
+    if (!blob.size) throw new Error('Демо-аудио пустое');
+    const database = await this.database();
+    const transaction = database.transaction([REQUESTS, CHUNKS], 'readwrite');
+    const completion = done(transaction);
+    try {
+      const requests = transaction.objectStore(REQUESTS);
+      const row = await result<LocalRequest | undefined>(requests.get(id));
+      if (
+        !row ||
+        row.kind !== 'demo' ||
+        row.frozenAt ||
+        row.abandonedAt ||
+        row.audioStored
+      ) {
+        throw new Error('Демо-приём уже завершён');
+      }
+      if (!row.parts.length) {
+        const now = Date.now();
+        row.parts.push({
+          partNo: 1,
+          mimeType: 'audio/mp4',
+          startedAt: now,
+          stoppedAt: now,
+          durationMs: 0,
+        });
+        transaction.objectStore(CHUNKS).put({
+          key: `${id}:1:1`,
+          requestId: id,
+          partNo: 1,
+          chunkNo: 1,
+          blob,
+        } satisfies RequestChunk);
+        requests.put(row);
+      }
+      await completion;
+      return row;
+    } catch (error) {
+      try {
+        transaction.abort();
+      } catch {
+        /* Already completed. */
+      }
+      await completion.catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async addChunk(
+    id: string,
+    partNo: number,
+    chunkNo: number,
+    blob: Blob,
+  ): Promise<void> {
     const database = await this.database();
     const transaction = database.transaction(CHUNKS, 'readwrite');
     const completion = done(transaction);
@@ -214,7 +281,11 @@ export class RequestStore {
     if (!row) throw new Error('Локальное аудио не найдено');
     const database = await this.database();
     const chunks = await result<RequestChunk[]>(
-      database.transaction(CHUNKS).objectStore(CHUNKS).index('requestId').getAll(id),
+      database
+        .transaction(CHUNKS)
+        .objectStore(CHUNKS)
+        .index('requestId')
+        .getAll(id),
     );
     return row.parts.map((part) => ({
       ...part,
@@ -262,9 +333,9 @@ export class RequestStore {
         .index('recordingId')
         .getAll(id),
     );
-    const partNumbers = [...new Set(chunks.map((chunk) => chunk.segmentNo))].sort(
-      (left, right) => left - right,
-    );
+    const partNumbers = [
+      ...new Set(chunks.map((chunk) => chunk.segmentNo)),
+    ].sort((left, right) => left - right);
     return partNumbers.map((number) => ({
       number,
       blob: new Blob(

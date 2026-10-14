@@ -9,6 +9,7 @@ const AUDIO_INPUT_KEY = 'overtone.audioInputId';
 interface RecordingSessionOptions {
   requestId: string;
   status?: RequestStatus;
+  kind?: 'regular' | 'demo';
   local: LocalRequest | null;
   busy: boolean;
   setLastError: (message: string | null) => void;
@@ -18,6 +19,7 @@ interface RecordingSessionOptions {
 export function useRecordingSession({
   requestId,
   status,
+  kind,
   local,
   busy,
   setLastError,
@@ -95,8 +97,8 @@ export function useRecordingSession({
   }, [applyServer, recorder, requestId, requestPermission, selectDevice, selectedDeviceId, setLastError]);
 
   useEffect(() => {
-    if (status === 'created') void refreshDevices().catch(() => undefined);
-  }, [refreshDevices, status]);
+    if (status === 'created' && kind !== 'demo') void refreshDevices().catch(() => undefined);
+  }, [refreshDevices, kind, status]);
 
   useEffect(() => {
     if (recorder.state !== 'recording') {

@@ -29,13 +29,13 @@ export class RequestsService {
     if (!uuid.test(id))
       throw new RequestError(400, 'INVALID_REQUEST_ID', 'Invalid request ID');
   }
-  async create(ownerId: string) {
+  async create(ownerId: string, kind: 'regular' | 'demo' = 'regular') {
     const client = await this.db.pool.connect();
     try {
       return await this.db.transaction(client, async () => {
         const result = await client.query<RequestRow>(
-          "INSERT INTO requests(id,owner_id,status) VALUES($1,$2,'created') ON CONFLICT DO NOTHING RETURNING *",
-          [randomUUID(), ownerId],
+          "INSERT INTO requests(id,owner_id,status,kind) VALUES($1,$2,'created',$3) ON CONFLICT DO NOTHING RETURNING *",
+          [randomUUID(), ownerId, kind],
         );
         if (!result.rows[0]) {
           const active = await client.query<RequestRow>(
@@ -52,7 +52,7 @@ export class RequestsService {
           );
         }
         const row = result.rows[0];
-        await this.event(client, row.id, 'created');
+        await this.event(client, row.id, 'created', { kind });
         return this.view(row);
       });
     } finally {
@@ -97,6 +97,7 @@ export class RequestsService {
     return {
       items: rows.map((row) => ({
         requestId: row.id,
+        kind: row.kind,
         status: row.status,
         createdAt: row.created_at,
       })),
@@ -144,6 +145,25 @@ export class RequestsService {
   async complete(ownerId: string, id: string, audio?: ReceivedAudio) {
     try {
       return await this.locked(ownerId, id, async (client, row) => {
+        if (row.kind === 'demo' && audio) {
+          const parts = audio.manifest.parts;
+          const expected = await fileHash(
+            join(process.cwd(), 'assets', 'demo.m4a'),
+          );
+          if (
+            parts.length !== 1 ||
+            parts[0].mimeType !== 'audio/mp4' ||
+            parts[0].sha256 !== expected
+          ) {
+            throw new RequestError(
+              409,
+              'AUDIO_CONTENT_CONFLICT',
+              'Demo audio differs from the prepared file',
+              'none',
+              id,
+            );
+          }
+        }
         if (audio && row.fingerprint && audio.fingerprint !== row.fingerprint)
           throw new RequestError(
             409,
@@ -475,6 +495,7 @@ export class RequestsService {
   ) {
     return {
       requestId: row.id,
+      kind: row.kind,
       status: row.status,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

@@ -168,12 +168,20 @@ Backend возвращает его во всех `/api/*` ответах. За�
 | PATCH | `/api/admin/users/{id}` | Клиника, профиль, права и блокировка пользователя |
 | POST | `/api/admin/users/{id}/regenerate-password` | Перевыпустить и один раз вернуть новый пароль |
 | POST | `/api/requests` | Создать приём; `201` или `409 ACTIVE_REQUEST_EXISTS` с существующим ID |
+| GET | `/api/requests/{id}/demo-audio` | Готовое аудио демо-приёма для пользователя с правом `requests:demo` |
 | GET | `/api/requests?limit=20&cursor=...` | История всех приёмов |
 | GET | `/api/requests/{id}` | Состояние и `audioStored: true/false/null` |
 | POST | `/api/requests/{id}/complete` | Multipart с аудио либо JSON `{}` для повтора без файлов |
 | POST | `/api/requests/{id}/abandon` | JSON `{}` или `{ "reason": "..." }` |
 | POST | `/api/requests/{id}/retry-processing` | JSON `{ "commandId": "ID предыдущей попытки" }`; проверяет прежнюю команду перед новым запуском |
 | GET | `/api/requests/{id}/report` | Готовый Markdown-документ в JSON-обёртке |
+
+Для демо-приёма `POST /api/requests` получает `{ "kind": "demo" }`. Требуются права
+`requests:use` и `requests:demo`. Готовый файл `backend/assets/demo.m4a` доступен
+для прослушивания и перемотки; микрофон не используется. Кнопка завершения
+передаёт этот файл через обычный `/complete`, после чего обработка и отчёт
+работают как у обычного приёма. Существующие администраторы получают новое
+право при миграции; затем его можно назначать в админке.
 
 Multipart содержит файлы `part_1`, `part_2`, … и строковое JSON-поле `manifest`:
 

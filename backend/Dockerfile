@@ -33,6 +33,7 @@ RUN apk add --no-cache ffmpeg
 COPY --from=backend-build /app/dist ./dist
 COPY --from=backend-build /app/node_modules ./node_modules
 COPY --from=backend-build /app/package.json ./package.json
+COPY assets ./assets
 COPY --from=beget-ca /beget-cloud-ca.crt /etc/ssl/certs/beget-cloud-ca.crt
 
 EXPOSE 3000

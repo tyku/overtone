@@ -58,13 +58,17 @@ export function useRequestData({
         if (saved) {
           setCurrent({
             requestId,
+            kind: saved.kind,
             status: saved.status,
             createdAt: saved.createdAt,
             audioStored: null,
           });
           setLocal(saved);
         }
-        if (!(error instanceof ApiFailure) || error.code !== 'REQUEST_NOT_FOUND') {
+        if (
+          !(error instanceof ApiFailure) ||
+          error.code !== 'REQUEST_NOT_FOUND'
+        ) {
           retryTimer = window.setTimeout(() => void loadInitial(), retryDelay);
           retryDelay = Math.min(retryDelay * 2, 15_000);
         }
@@ -101,7 +105,10 @@ export function useRequestData({
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      void requestStore.cleanup().then(refreshLocal).catch((error) => setNotice(errorMessage(error)));
+      void requestStore
+        .cleanup()
+        .then(refreshLocal)
+        .catch((error) => setNotice(errorMessage(error)));
     }, 60_000);
     return () => window.clearInterval(timer);
   }, [refreshLocal, setNotice]);

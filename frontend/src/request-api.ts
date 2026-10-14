@@ -1,4 +1,10 @@
-import type { AudioPart, Report, RequestPage, RequestRow, RetryAction } from './types';
+import type {
+  AudioPart,
+  Report,
+  RequestPage,
+  RequestRow,
+  RetryAction,
+} from './types';
 import {
   apiCall,
   ApiClientError,
@@ -28,7 +34,10 @@ export class ApiFailure extends Error {
 }
 
 export class RequestApi {
-  private async call<T>(path: string, options: RequestInit = {}): Promise<T & { httpStatus: number }> {
+  private async call<T>(
+    path: string,
+    options: RequestInit = {},
+  ): Promise<T & { httpStatus: number }> {
     try {
       return await apiCall<T>(
         `/api/requests${path}`,
@@ -55,12 +64,39 @@ export class RequestApi {
     }
   }
 
-  create(): Promise<RequestRow> {
+  create(kind: 'regular' | 'demo' = 'regular'): Promise<RequestRow> {
     return this.call<RequestRow>('', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: '{}',
+      body: JSON.stringify({ kind }),
     });
+  }
+
+  async demoAudio(id: string): Promise<Blob> {
+    const headers = new Headers({ [API_VERSION_HEADER]: API_VERSION });
+    const response = await fetch(
+      `/api/requests/${encodeURIComponent(id)}/demo-audio`,
+      {
+        headers,
+        credentials: 'same-origin',
+      },
+    );
+    if (response.headers.get(API_VERSION_HEADER) !== API_VERSION) {
+      throw new ApiFailure(
+        'Версия API сервера не поддерживается',
+        'API_VERSION_UNSUPPORTED',
+      );
+    }
+    if (!response.ok) {
+      throw new ApiFailure(
+        'Не удалось загрузить демо-аудио',
+        'DEMO_AUDIO_UNAVAILABLE',
+      );
+    }
+    const blob = await response.blob();
+    if (!blob.size)
+      throw new ApiFailure('Демо-аудио пустое', 'DEMO_AUDIO_UNAVAILABLE');
+    return new Blob([blob], { type: 'audio/mp4' });
   }
 
   list(cursor?: string | null): Promise<RequestPage> {
@@ -101,7 +137,10 @@ export class RequestApi {
           'EMPTY_AUDIO',
         );
       }
-      const digest = await crypto.subtle.digest('SHA-256', await part.blob.arrayBuffer());
+      const digest = await crypto.subtle.digest(
+        'SHA-256',
+        await part.blob.arrayBuffer(),
+      );
       const sha256 = [...new Uint8Array(digest)]
         .map((value) => value.toString(16).padStart(2, '0'))
         .join('');
@@ -137,10 +176,13 @@ export class RequestApi {
   }
 
   retryProcessing(id: string, commandId: string): Promise<RequestRow> {
-    return this.call<RequestRow>(`/${encodeURIComponent(id)}/retry-processing`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId }),
-    });
+    return this.call<RequestRow>(
+      `/${encodeURIComponent(id)}/retry-processing`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId }),
+      },
+    );
   }
 }

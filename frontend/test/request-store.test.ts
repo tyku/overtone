@@ -17,6 +17,34 @@ describe('RequestStore', () => {
   beforeEach(deleteDatabase);
   afterEach(deleteDatabase);
 
+  it('imports demo audio once and reuses it for the normal upload', async () => {
+    const store = new RequestStore();
+    const requestId = crypto.randomUUID();
+    await store.remember({
+      requestId,
+      kind: 'demo',
+      status: 'created',
+      createdAt: new Date().toISOString(),
+      audioStored: false,
+    });
+    await store.addDemoAudio(
+      requestId,
+      new Blob(['demo'], { type: 'audio/mp4' }),
+    );
+    await store.addDemoAudio(
+      requestId,
+      new Blob(['other'], { type: 'audio/mp4' }),
+    );
+    const parts = await store.parts(requestId);
+    expect(parts).toHaveLength(1);
+    expect(parts[0].mimeType).toBe('audio/mp4');
+    expect(await parts[0].blob.text()).toBe('demo');
+    await store.freeze(requestId);
+    await expect(
+      store.addDemoAudio(requestId, new Blob(['other'])),
+    ).rejects.toThrow(/завершён/);
+  });
+
   it('keeps frozen audio across reopen and expires only force-closed audio', async () => {
     const store = new RequestStore();
     const requestId = crypto.randomUUID();
@@ -32,7 +60,9 @@ describe('RequestStore', () => {
     await store.addChunk(requestId, 1, 2, new Blob(['last']));
 
     const reopened = new RequestStore();
-    await expect(reopened.addPart(requestId, 'audio/webm')).rejects.toThrow(/завершён/);
+    await expect(reopened.addPart(requestId, 'audio/webm')).rejects.toThrow(
+      /завершён/,
+    );
     await reopened.remember({
       requestId,
       status: 'created',
@@ -40,7 +70,9 @@ describe('RequestStore', () => {
       audioStored: false,
     });
     expect((await reopened.get(requestId))?.frozenAt).toBeTruthy();
-    expect(await (await reopened.parts(requestId))[0].blob.text()).toBe('firstlast');
+    expect(await (await reopened.parts(requestId))[0].blob.text()).toBe(
+      'firstlast',
+    );
 
     const closedAt = new Date().toISOString();
     await reopened.remember({

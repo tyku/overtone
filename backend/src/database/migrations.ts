@@ -136,4 +136,12 @@ ALTER TABLE requests
   ADD CONSTRAINT requests_owner_fk FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE RESTRICT;
 `,
   },
+  {
+    version: 4,
+    sql: `ALTER TABLE requests ADD COLUMN kind text NOT NULL DEFAULT 'regular'
+      CHECK (kind IN ('regular', 'demo'));
+INSERT INTO user_permissions(user_id, permission)
+SELECT user_id, 'requests:demo' FROM user_permissions WHERE permission='admin:access'
+ON CONFLICT DO NOTHING;`,
+  },
 ] as const;

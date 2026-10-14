@@ -37,6 +37,7 @@ export type AudioManifest = { parts: AudioPart[] };
 export type RequestRow = {
   id: string;
   owner_id: string;
+  kind: 'regular' | 'demo';
   status: RequestStatus;
   created_at: Date;
   updated_at: Date;

@@ -2,6 +2,7 @@ import type { Permission } from '../../auth/auth.types';
 
 export const permissionOptions: Array<{ value: Permission; label: string }> = [
   { value: 'requests:use', label: 'Работа с приёмами' },
+  { value: 'requests:demo', label: 'Демо-приём' },
   { value: 'admin:access', label: 'Вход в админку' },
   { value: 'admin:clinics:manage', label: 'Управление клиниками' },
   { value: 'admin:users:manage', label: 'Управление пользователями' },
@@ -36,4 +37,3 @@ export function PermissionPicker({
     </fieldset>
   );
 }
-
