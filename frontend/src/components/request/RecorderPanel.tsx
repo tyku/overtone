@@ -1,11 +1,19 @@
 import type { RequestPageController } from '../../hooks/use-request-page-controller';
 
-export function RecorderPanel({ controller }: { controller: RequestPageController }) {
+export function RecorderPanel({
+  controller,
+}: {
+  controller: RequestPageController;
+}) {
   const { busy, local, timerText, recording, perform } = controller;
   return (
     <section id="recorderPanel" className="panel">
-      <p id="timer" className="timer">{timerText}</p>
-      <p id="recordingHint" className="muted">Аудио сохраняется на этом устройстве</p>
+      <p id="timer" className="timer">
+        {timerText}
+      </p>
+      <p id="recordingHint" className="muted">
+        Аудио сохраняется на этом устройстве
+      </p>
       <label className="input-picker" htmlFor="audioInput">
         Микрофон
         <select
@@ -38,7 +46,9 @@ export function RecorderPanel({ controller }: { controller: RequestPageControlle
           id="recordButton"
           className={`primary${recording.recording ? ' recording' : ''}`}
           disabled={
-            busy || recording.recorderState === 'starting' || recording.recorderState === 'stopping'
+            busy ||
+            recording.recorderState === 'starting' ||
+            recording.recorderState === 'stopping'
           }
           onClick={() => void perform(recording.toggleRecording)}
         >
@@ -56,6 +66,15 @@ export function RecorderPanel({ controller }: { controller: RequestPageControlle
         >
           Завершить приём
         </button>
+        {!local?.parts.length && (
+          <button
+            className="secondary"
+            disabled={busy}
+            onClick={() => void perform(controller.abandon)}
+          >
+            Закрыть без записи
+          </button>
+        )}
       </div>
     </section>
   );

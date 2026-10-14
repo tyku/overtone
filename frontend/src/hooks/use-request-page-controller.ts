@@ -121,9 +121,12 @@ export function useRequestPageController({
   }, [applyServer, canRetryProcessing, current?.commands, requestId]);
 
   const abandon = useCallback(async () => {
+    const empty = !(await requestStore.get(requestId))?.parts.length;
     if (
       !confirm(
-        'Закрыть приём без отчёта? Локальное аудио без копии на сервере сохранится на 3 часа.',
+        empty
+          ? 'Закрыть пустой приём без отчёта?'
+          : 'Закрыть приём без отчёта? Локальное аудио без копии на сервере сохранится на 3 часа.',
       )
     ) {
       return;

@@ -12,6 +12,11 @@ COPY styles.css ./styles.css
 
 RUN npm run build
 
+FROM alpine:3.23 AS artifacts
+COPY --from=build /app/dist /dist
+COPY scripts/publish-assets.sh /publish-assets.sh
+ENTRYPOINT ["/bin/sh", "/publish-assets.sh"]
+
 FROM nginx:1.30.4-alpine3.24@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c AS runtime
 ARG APP_VERSION=dev
 LABEL org.opencontainers.image.revision=$APP_VERSION

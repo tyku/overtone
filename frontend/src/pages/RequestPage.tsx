@@ -25,6 +25,7 @@ export function RequestPage({
     onBusyChange,
   });
   const { current, local, frozen, saving } = controller;
+  const isDemo = current?.kind === 'demo' || local?.kind === 'demo';
 
   return (
     <section id="requestView">
@@ -38,7 +39,7 @@ export function RequestPage({
       />
       {current?.status === 'created' &&
         !frozen &&
-        (current.kind === 'demo' ? (
+        (isDemo ? (
           <DemoPanel controller={controller} />
         ) : (
           <RecorderPanel controller={controller} />

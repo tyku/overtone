@@ -168,6 +168,7 @@ Backend возвращает его во всех `/api/*` ответах. За�
 | PATCH | `/api/admin/users/{id}` | Клиника, профиль, права и блокировка пользователя |
 | POST | `/api/admin/users/{id}/regenerate-password` | Перевыпустить и один раз вернуть новый пароль |
 | POST | `/api/requests` | Создать приём; `201` или `409 ACTIVE_REQUEST_EXISTS` с существующим ID |
+| GET | `/api/requests/demo-capability` | Проверить поддержку демо-приёма перед созданием |
 | GET | `/api/requests/{id}/demo-audio` | Готовое аудио демо-приёма для пользователя с правом `requests:demo` |
 | GET | `/api/requests?limit=20&cursor=...` | История всех приёмов |
 | GET | `/api/requests/{id}` | Состояние и `audioStored: true/false/null` |

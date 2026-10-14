@@ -84,6 +84,11 @@ export class RequestsController {
     }
     return this.service.create(user.id, kind);
   }
+  @Get('demo-capability')
+  @RequirePermissions('requests:demo')
+  demoCapability() {
+    return { kind: 'demo', ready: true };
+  }
   @Get(':id/demo-audio') async demoAudio(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,

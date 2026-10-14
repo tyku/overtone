@@ -19,6 +19,9 @@ the application code always uses relative `/api` paths.
 
 The production image is self-contained: it builds the Vite application and
 serves the resulting files with its own unprivileged Nginx on port `8080`.
+The same Dockerfile also has an `artifacts` target for `../local-stack`:
+its one-shot container publishes built files to the `frontend_dist` volume,
+copying hashed assets before atomically replacing `index.html`.
 
 ```sh
 docker build --build-arg APP_VERSION="$(git rev-parse HEAD)" \

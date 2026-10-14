@@ -64,12 +64,44 @@ export class RequestApi {
     }
   }
 
-  create(kind: 'regular' | 'demo' = 'regular'): Promise<RequestRow> {
-    return this.call<RequestRow>('', {
+  async create(kind: 'regular' | 'demo' = 'regular'): Promise<RequestRow> {
+    if (kind === 'demo') {
+      try {
+        const capability = await this.call<{ kind: string; ready: boolean }>(
+          '/demo-capability',
+        );
+        if (capability.kind !== 'demo' || capability.ready !== true) {
+          throw new ApiFailure(
+            'Сервер не поддерживает демо-приём',
+            'DEMO_UNSUPPORTED',
+          );
+        }
+      } catch (error) {
+        if (
+          error instanceof ApiFailure &&
+          ['INVALID_REQUEST_ID', 'REQUEST_NOT_FOUND'].includes(error.code)
+        ) {
+          throw new ApiFailure(
+            'Сервер не поддерживает демо-приём. Обновите backend.',
+            'DEMO_UNSUPPORTED',
+          );
+        }
+        throw error;
+      }
+    }
+    const row = await this.call<RequestRow>('', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ kind }),
     });
+    if (kind === 'demo' && row.kind !== 'demo') {
+      await this.abandon(row.requestId).catch(() => undefined);
+      throw new ApiFailure(
+        'Сервер не создал демо-приём. Обновите backend.',
+        'DEMO_KIND_MISMATCH',
+      );
+    }
+    return row;
   }
 
   async demoAudio(id: string): Promise<Blob> {
